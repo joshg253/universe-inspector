@@ -1,0 +1,282 @@
+// Town layout: street network, plaza and hall, an optional river, then buildings packed along the streets.
+// Pure function of the rng it is given (so of seed + path). No theme words: it emits ids and cell codes.
+import { makeNoise, type Rng } from './rng';
+import type { BodyKind, DwellingKind, SizeClass, TownStyle } from './types';
+
+/** Cell codes of the district grid. Buildings are not in the grid; they are listed separately. */
+export const CELL = { ground: 0, road: 1, plaza: 2, green: 3, water: 4 } as const;
+
+export interface TownBuilding {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  kind: DwellingKind;
+  residents: number;
+}
+
+export interface TownLayout {
+  style: TownStyle;
+  cells: Uint8Array;
+  buildings: TownBuilding[];
+}
+
+const STYLE_WEIGHTS: Record<SizeClass, Record<TownStyle, number>> = {
+  small: { village: 5, organic: 3, grid: 1, radial: 0 },
+  medium: { village: 1, organic: 3, grid: 3, radial: 1 },
+  large: { village: 0, organic: 2, grid: 4, radial: 3 },
+};
+
+const FOOTPRINTS: [number, number, number][] = [
+  [2, 2, 40],
+  [3, 2, 20],
+  [2, 3, 20],
+  [3, 3, 10],
+  [4, 3, 4],
+  [3, 4, 4],
+  [2, 1, 6],
+];
+
+const DENSITY: Record<SizeClass, number> = { small: 0.55, medium: 0.75, large: 0.9 };
+const HALL: Record<SizeClass, [number, number]> = { small: [3, 3], medium: [4, 3], large: [4, 4] };
+
+export function layoutTown(N: number, size: SizeClass, population: number, bodyKind: BodyKind, r: Rng): TownLayout {
+  const cells = new Uint8Array(N * N);
+  const occ = new Uint8Array(N * N); // 1 where a building stands
+  const noise = makeNoise(r.u32());
+  const c = N / 2;
+  const cx = Math.floor(c);
+  const cy = Math.floor(c);
+  // Town radius grows with population: about 7 cells for an outpost to about 21 for a metropolis.
+  const R = Math.max(7, Math.min(N / 2 - 4, 5 + 5.5 * (Math.log10(Math.max(10, population)) - 1)));
+  const style = r.weighted(STYLE_WEIGHTS[size]) as TownStyle;
+
+  const inB = (x: number, y: number) => x >= 0 && y >= 0 && x < N && y < N;
+  const dist = (x: number, y: number) => Math.hypot(x + 0.5 - c, y + 0.5 - c);
+  /** The town's ragged boundary. */
+  const inside = (x: number, y: number) => dist(x, y) < R * (0.82 + 0.36 * noise.fbm(x / 7 + 3, y / 7 + 9, 3));
+
+  const put = (x: number, y: number, v: number, clip = true) => {
+    if (!inB(x, y) || (clip && !inside(x, y))) return;
+    cells[y * N + x] = v;
+  };
+  const line = (x0: number, y0: number, x1: number, y1: number, clip = true) => {
+    const dx = Math.abs(x1 - x0);
+    const dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1;
+    const sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    for (;;) {
+      put(x0, y0, CELL.road, clip);
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = 2 * err;
+      if (e2 > -dy) {
+        err -= dy;
+        x0 += sx;
+      }
+      if (e2 < dx) {
+        err += dx;
+        y0 += sy;
+      }
+    }
+  };
+  /** A two-cell-wide street. */
+  const avenue = (x0: number, y0: number, x1: number, y1: number) => {
+    line(x0, y0, x1, y1);
+    if (Math.abs(x1 - x0) >= Math.abs(y1 - y0)) line(x0, y0 + 1, x1, y1 + 1);
+    else line(x0 + 1, y0, x1 + 1, y1);
+  };
+  const lo = Math.floor(c - R) - 1;
+  const hi = Math.ceil(c + R) + 1;
+
+  // ---- streets
+  if (style === 'grid') {
+    const spots = (mid: number): number[] => {
+      const out = [mid];
+      for (let p = mid - r.int(5, 8); p > lo; p -= r.int(5, 8)) out.push(p);
+      for (let p = mid + r.int(5, 8); p < hi; p += r.int(5, 8)) out.push(p);
+      return out;
+    };
+    for (const x of spots(cx)) {
+      if (x === cx) avenue(x, lo, x, hi);
+      else line(x, lo + r.int(0, 4), x, hi - r.int(0, 4));
+    }
+    for (const y of spots(cy)) {
+      if (y === cy) avenue(lo, y, hi, y);
+      else line(lo + r.int(0, 4), y, hi - r.int(0, 4), y);
+    }
+  } else if (style === 'radial') {
+    const TAU = Math.PI * 2;
+    for (let rad = 4 + r.int(0, 2); rad < R + 2; rad += r.int(5, 7)) {
+      const steps = Math.ceil(TAU * rad * 2);
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * TAU;
+        put(Math.round(c + Math.cos(a) * rad - 0.5), Math.round(c + Math.sin(a) * rad - 0.5), CELL.road);
+      }
+    }
+    const spokes = r.int(6, 10);
+    const a0 = r.range(0, TAU / spokes);
+    for (let k = 0; k < spokes; k++) {
+      const a = a0 + (k * TAU) / spokes;
+      line(cx, cy, Math.round(c + Math.cos(a) * (R + 1)), Math.round(c + Math.sin(a) * (R + 1)));
+    }
+  } else if (style === 'organic') {
+    const horiz = r.chance(0.5);
+    const amp = r.range(2, 5);
+    const wave = r.range(5, 9);
+    const phase = r.range(0, 6.28);
+    const at = (t: number): [number, number] => {
+      const off = Math.round(amp * Math.sin(t / wave + phase));
+      return horiz ? [cx + t, cy + off] : [cx + off, cy + t];
+    };
+    let prev = at(lo - cx);
+    for (let t = lo - cx + 1; t <= hi - cx; t++) {
+      const p = at(t);
+      avenue(prev[0], prev[1], p[0], p[1]);
+      prev = p;
+    }
+    const lane = (sx: number, sy: number, dx: number, dy: number, len: number, depth: number) => {
+      let x = sx;
+      let y = sy;
+      for (let i = 0; i < len; i++) {
+        x += dx;
+        y += dy;
+        if (r.chance(0.2)) {
+          // wander sideways
+          if (dx === 0) x += r.chance(0.5) ? 1 : -1;
+          else y += r.chance(0.5) ? 1 : -1;
+        }
+        put(x, y, CELL.road);
+        if (depth === 0 && i > 2 && r.chance(0.12)) lane(x, y, dy, dx, Math.floor((len - i) / 2) + 2, 1);
+      }
+    };
+    for (let t = lo - cx + 2; t < hi - cx; t += r.int(4, 7)) {
+      const [x, y] = at(t);
+      const len = r.int(4, Math.max(5, Math.floor(R * 0.9)));
+      if (r.chance(0.8)) lane(x, y, horiz ? 0 : 1, horiz ? 1 : 0, len, 0);
+      if (r.chance(0.8)) lane(x, y, horiz ? 0 : -1, horiz ? -1 : 0, len, 0);
+    }
+  } else {
+    // village: a crossroads and a few lanes
+    const reach = Math.floor(R * 0.85);
+    avenue(cx - reach, cy, cx + reach, cy);
+    line(cx, cy - reach, cx, cy + reach);
+    for (let k = r.int(2, 4); k > 0; k--) {
+      const t = r.int(-reach + 2, reach - 2);
+      const len = r.int(3, 7);
+      if (r.chance(0.5)) line(cx + t, cy, cx + t, cy + (r.chance(0.5) ? len : -len));
+      else line(cx, cy + t, cx + (r.chance(0.5) ? len : -len), cy + t);
+    }
+  }
+
+  // ---- river: crosses the district, roads keep going over it (bridges)
+  const riverChance = bodyKind === 'temperate' ? 0.45 : bodyKind === 'arid' ? 0.08 : 0;
+  if (r.chance(riverChance)) {
+    const vertical = r.chance(0.5);
+    const base = c + (r.chance(0.5) ? 1 : -1) * r.int(7, 13);
+    const amp = r.range(2, 5);
+    const wave = r.range(6, 11);
+    const phase = r.range(0, 6.28);
+    const width = r.int(2, 3);
+    for (let t = 0; t < N; t++) {
+      const centre = Math.round(base + amp * Math.sin(t / wave + phase));
+      for (let k = 0; k < width; k++) {
+        const x = vertical ? centre + k : t;
+        const y = vertical ? t : centre + k;
+        if (inB(x, y) && cells[y * N + x] === CELL.ground) cells[y * N + x] = CELL.water;
+      }
+    }
+  }
+
+  // ---- plaza and hall at the centre, over whatever was there
+  const [hw, hh] = HALL[size];
+  const hx = cx - Math.floor(hw / 2);
+  const hy = cy - Math.floor(hh / 2);
+  const ring = size === 'large' ? 2 : 1;
+  for (let y = hy - ring; y < hy + hh + ring; y++) for (let x = hx - ring; x < hx + hw + ring; x++) put(x, y, CELL.plaza, false);
+  const buildings: TownBuilding[] = [{ x: hx, y: hy, w: hw, h: hh, kind: 'hall', residents: r.int(0, 2) }];
+  for (let y = hy; y < hy + hh; y++) for (let x = hx; x < hx + hw; x++) occ[y * N + x] = 1;
+
+  // ---- buildings along the streets
+  const canPlace = (bx: number, by: number, w: number, h: number): boolean => {
+    for (let y = by; y < by + h; y++) {
+      for (let x = bx; x < bx + w; x++) {
+        if (!inB(x, y) || cells[y * N + x] !== CELL.ground || occ[y * N + x] || dist(x, y) > R + 1.5) return false;
+      }
+    }
+    return true;
+  };
+  const place = (bx: number, by: number, w: number, h: number) => {
+    for (let y = by; y < by + h; y++) for (let x = bx; x < bx + w; x++) occ[y * N + x] = 1;
+    buildings.push({ x: bx, y: by, w, h, kind: 'home', residents: 0 });
+  };
+  const footprint = (): [number, number] => {
+    const total = FOOTPRINTS.reduce((n, f) => n + f[2], 0);
+    let t = r.range(0, total);
+    for (const [w, h, wt] of FOOTPRINTS) {
+      t -= wt;
+      if (t <= 0) return [w, h];
+    }
+    return [2, 2];
+  };
+  const dens = DENSITY[size];
+  const along: { x: number; y: number; k: number }[] = [];
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const v = cells[y * N + x];
+      if (v === CELL.road || v === CELL.plaza) along.push({ x, y, k: dist(x, y) + r.range(0, 2.5) });
+    }
+  }
+  along.sort((a, b) => a.k - b.k);
+  for (const { x, y } of along) {
+    const d = dist(x, y);
+    if (d > R + 2) continue;
+    const p = Math.max(0.12, Math.min(0.97, dens * (1.05 - 0.5 * (d / R))));
+    for (const side of [0, 1, 2, 3].sort(() => r.range(-1, 1))) {
+      if (!r.chance(p)) continue;
+      const [w, h] = footprint();
+      const bx = side === 2 ? x - w : side === 3 ? x + 1 : x - r.int(0, w - 1);
+      const by = side === 0 ? y - h : side === 1 ? y + 1 : y - r.int(0, h - 1);
+      if (canPlace(bx, by, w, h)) place(bx, by, w, h);
+    }
+  }
+  // Back lots: small houses behind the street frontage.
+  for (let y = 1; y < N - 1; y += 2) {
+    for (let x = 1; x < N - 1; x += 2) {
+      const d = dist(x, y);
+      if (d > R || !r.chance(dens * 0.55 * (1 - d / (R + 1)))) continue;
+      const [w, h] = r.chance(0.7) ? [2, 2] : [2, 1];
+      if (canPlace(x, y, w, h)) place(x, y, w, h);
+    }
+  }
+
+  // ---- what the buildings are, and who lives in them
+  for (const b of buildings) {
+    if (b.kind === 'hall') continue;
+    const area = b.w * b.h;
+    const d = Math.min(1, dist(b.x + b.w / 2, b.y + b.h / 2) / R);
+    b.kind = r.weighted({
+      home: 70 - (area >= 9 ? 25 : 0),
+      shop: 3 + 14 * (1 - d) + (area >= 6 ? 4 : 0),
+      works: 5 + 16 * d + (area >= 9 ? 6 : 0),
+    }) as DwellingKind;
+    b.residents =
+      b.kind === 'home'
+        ? Math.max(1, Math.min(8, 1 + Math.floor(area * r.range(0.15, 0.55))))
+        : b.kind === 'shop'
+          ? r.int(0, 2)
+          : r.int(0, 3);
+  }
+  buildings.sort((a, b) => a.y - b.y || a.x - b.x);
+
+  // ---- gardens inside the town, fields outside it
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      if (cells[y * N + x] !== CELL.ground || occ[y * N + x]) continue;
+      const n = noise.fbm(x / 4.5 + 11, y / 4.5 + 5, 2);
+      if (n > (dist(x, y) < R * 1.05 ? 0.56 : 0.62)) cells[y * N + x] = CELL.green;
+    }
+  }
+
+  return { style, cells, buildings };
+}

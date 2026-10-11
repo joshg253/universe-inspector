@@ -1,0 +1,1644 @@
+/* Skins are just CSS variables on #app. Bevels are built from the four
+   border-shade variables, so the flat skin simply makes them all one color. */
+
+:where(#app), /* zero specificity, so the .skin-* overrides below can win */
+.skin-win98 {
+  --desktop: #008080;
+  --face: #c0c0c0;
+  --hilight: #ffffff;
+  --light: #dfdfdf;
+  --shadow: #808080;
+  --dkshadow: #000000;
+  --title-a: #000080;
+  --title-b: #1084d0;
+  --title-text: #ffffff;
+  --sel-bg: #000080;
+  --sel-text: #ffffff;
+  --field: #ffffff;
+  --text: #000000;
+  --link: #0000ee;
+  --good: #007000;
+  --chart: #000080;
+  --font: 'MS Sans Serif', Tahoma, 'Segoe UI', Arial, sans-serif;
+  --font-size: 12px;
+}
+
+.skin-win2k {
+  --chart: #0a246a;
+  --desktop: #3a6ea5;
+  --face: #d4d0c8;
+  --light: #d4d0c8;
+  --dkshadow: #404040;
+  --title-a: #0a246a;
+  --title-b: #a6caf0;
+  --sel-bg: #0a246a;
+}
+
+.skin-flat {
+  --desktop: #dcdcdc;
+  --face: #f0f0f0;
+  --hilight: #adadad;
+  --light: #f0f0f0;
+  --shadow: #f0f0f0;
+  --dkshadow: #adadad;
+  --title-a: #ffffff;
+  --title-b: #ffffff;
+  --title-text: #000000;
+  --sel-bg: #cce8ff;
+  --sel-text: #000000;
+  --link: #0066cc;
+  --chart: #0066cc;
+  --font: 'Segoe UI', Tahoma, Arial, sans-serif;
+  --font-size: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  background: var(--desktop);
+  color: var(--text);
+  font: var(--font-size) / 1.3 var(--font);
+}
+
+/* Zero specificity so a skin can redefine the bevels outright. */
+:where(#app) {
+  --raised: inset -1px -1px var(--dkshadow), inset 1px 1px var(--hilight), inset -2px -2px var(--shadow),
+    inset 2px 2px var(--light);
+  --sunken: inset -1px -1px var(--hilight), inset 1px 1px var(--shadow), inset -2px -2px var(--light),
+    inset 2px 2px var(--dkshadow);
+  --pressed: inset -1px -1px var(--hilight), inset 1px 1px var(--dkshadow), inset -2px -2px var(--light),
+    inset 2px 2px var(--shadow);
+}
+
+/* ------------------------------------------------------------- window */
+
+.desktop {
+  position: absolute;
+  inset: 0 0 30px 0;
+}
+
+.window {
+  position: absolute;
+  inset: 0;
+  background: var(--face);
+  box-shadow: var(--raised);
+  padding: 3px;
+  display: flex;
+  flex-direction: column;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 2px 0 3px;
+  background: linear-gradient(90deg, var(--title-a), var(--title-b));
+  color: var(--title-text);
+  font-weight: bold;
+  user-select: none;
+  flex: none;
+}
+
+.tb-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  background: radial-gradient(circle at 50% 50%, #c0392b 0 35%, #000 36% 100%);
+  box-shadow: inset 0 0 0 1px #444;
+}
+
+.tb-title {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tb-btns {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+}
+
+.tb-btn {
+  width: 16px;
+  height: 14px;
+  background: var(--face);
+  color: var(--text);
+  box-shadow: var(--raised);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+  font-weight: bold;
+}
+
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 6px 4px 4px;
+}
+
+.left {
+  width: var(--left-w, 440px);
+  min-width: 300px;
+  max-width: calc(100% - 368px);
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.splitter {
+  flex: none;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.splitter:hover,
+.splitter.drag,
+.splitter:focus-visible {
+  background: color-mix(in srgb, var(--shadow) 35%, transparent);
+  outline: none;
+}
+
+.right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* --------------------------------------------------------------- tabs */
+
+.tabstrip {
+  display: flex;
+  padding-left: 2px;
+  position: relative;
+  z-index: 1;
+}
+
+.tab {
+  min-width: 0 !important;
+  padding: 3px 9px 2px !important;
+  margin-top: 2px;
+  box-shadow: inset -1px 0 var(--dkshadow), inset 1px 1px var(--hilight), inset -2px 0 var(--shadow),
+    inset 2px 2px var(--light) !important;
+}
+
+.tab.active {
+  margin-top: 0;
+  padding: 4px 11px 3px !important;
+  margin-bottom: -2px;
+  margin-left: -2px;
+  margin-right: -2px;
+  position: relative;
+  z-index: 2;
+}
+
+.panel {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 8px 6px;
+  box-shadow: var(--raised);
+  background: var(--face);
+}
+
+.panel.active {
+  display: flex;
+}
+
+.controls {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  box-shadow: var(--raised);
+  background: var(--face);
+}
+
+/* ----------------------------------------------------------- controls */
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--face);
+  border: 0;
+  border-radius: 0;
+  min-width: 70px;
+  padding: 3px 10px;
+  box-shadow: var(--raised);
+  cursor: default;
+}
+
+button.small {
+  min-width: 0;
+  width: 24px;
+  padding: 3px 0;
+}
+
+button:active:not(:disabled),
+button.pressed {
+  box-shadow: var(--pressed);
+  padding: 4px 9px 2px 11px;
+}
+
+button.small:active:not(:disabled) {
+  padding: 4px 0 2px;
+}
+
+button.speed {
+  min-width: 0;
+  padding: 3px 7px;
+}
+
+button:focus-visible {
+  outline: 1px dotted var(--text);
+  outline-offset: -4px;
+}
+
+button:disabled {
+  color: var(--shadow);
+  text-shadow: 1px 1px 0 var(--hilight);
+}
+
+.skin-flat button {
+  border: 1px solid #adadad;
+  box-shadow: none;
+  background: #e1e1e1;
+}
+
+.skin-flat button.pressed,
+.skin-flat button:active:not(:disabled) {
+  box-shadow: none;
+  padding: 3px 10px;
+  background: #cce4f7;
+  border-color: #0078d7;
+}
+
+input[type='text'],
+input[type='number'],
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--field);
+  border: 0;
+  border-radius: 0;
+  box-shadow: var(--sunken);
+  padding: 2px 4px;
+  height: 22px;
+}
+
+input.seed {
+  flex: 1;
+  min-width: 0;
+}
+
+input.num {
+  width: 70px;
+}
+
+input[type='checkbox'] {
+  margin: 0 3px 0 0;
+  vertical-align: middle;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.row label {
+  width: 90px;
+  flex: none;
+}
+
+.btnrow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.hint {
+  color: var(--shadow);
+  font-size: 11px;
+}
+
+.skin-flat .hint {
+  color: #666;
+}
+
+.hint.tight {
+  margin-top: -2px;
+}
+
+.bigtitle {
+  font-size: 17px;
+  font-weight: bold;
+  margin-top: 4px;
+}
+
+.stateline {
+  font-weight: bold;
+  color: #8a5a00;
+}
+
+.stateline.running {
+  color: var(--good);
+}
+
+.help {
+  font-size: 11px;
+  color: var(--shadow);
+}
+
+.skin-flat .help {
+  color: #666;
+}
+
+table.kv {
+  border-collapse: collapse;
+}
+
+table.kv td {
+  padding: 1px 12px 1px 0;
+}
+
+table.kv td.k {
+  color: #404040;
+  min-width: 70px;
+}
+
+table.kv.wide td.k {
+  min-width: 170px;
+}
+
+.skin-flat table.kv td.k {
+  color: #555;
+}
+
+.listbox {
+  flex: 1;
+  min-height: 90px;
+  overflow: auto;
+  background: var(--field);
+  box-shadow: var(--sunken);
+}
+
+table.list {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table.list th {
+  position: sticky;
+  top: 0;
+  text-align: left;
+  font-weight: normal;
+  padding: 2px 6px;
+  background: var(--face);
+  box-shadow: var(--raised);
+}
+
+table.list th:first-child {
+  width: 55%;
+}
+
+table.list td {
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+table.list tr.section td {
+  color: #0058c8;
+  padding-top: 5px;
+  border-bottom: 1px solid #c8c8c8;
+}
+
+table.list tr:not(.section) {
+  cursor: default;
+}
+
+table.list tr.sel td {
+  background: var(--sel-bg);
+  color: var(--sel-text);
+}
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.section-title {
+  margin: 10px 0 4px;
+  font-weight: bold;
+  border-bottom: 1px solid var(--shadow);
+}
+
+.check {
+  display: block;
+  margin: 4px 0;
+}
+
+.children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+a.crumb {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+.log {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--field);
+  box-shadow: var(--sunken);
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  padding: 3px 5px;
+}
+
+.logline {
+  padding: 1px 0;
+  white-space: nowrap;
+}
+
+.logline:hover {
+  background: var(--sel-bg);
+  color: var(--sel-text);
+}
+
+.lt {
+  color: var(--shadow);
+}
+
+/* ---------------------------------------------------------- right side */
+
+.crumbs {
+  font-size: 13px;
+  min-height: 18px;
+  padding: 1px 2px;
+}
+
+.crumbs b {
+  font-size: 13px;
+}
+
+.sep {
+  color: var(--shadow);
+}
+
+.mapwrap {
+  position: relative;
+  flex: 1;
+  min-height: 160px;
+  background: #1e1e22;
+  box-shadow: var(--sunken);
+  overflow: hidden;
+}
+
+.map-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  touch-action: none;
+}
+
+.mapbtns {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.mapbtns button {
+  min-width: 0;
+  width: 32px;
+  padding: 2px 0;
+}
+
+.info {
+  font-size: 11px;
+  color: #404040;
+  line-height: 1.25;
+}
+
+.skin-flat .info {
+  color: #555;
+}
+
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 14px;
+  min-height: 20px;
+}
+
+.marks-label {
+  margin-right: -4px;
+}
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.mark.zero .mark-text {
+  color: var(--shadow);
+}
+
+.glyph {
+  display: inline-block;
+  min-width: 14px;
+  text-align: center;
+  font-weight: bold;
+}
+
+.g-orbit {
+  color: #7a7a7a;
+}
+.g-body {
+  color: #3f8f4a;
+}
+.g-site {
+  color: #8a5cd0;
+}
+.g-anom {
+  color: #d03030;
+}
+.g-terrain {
+  color: #5a8a5a;
+}
+.g-night {
+  color: #2a3a8a;
+}
+.g-road {
+  color: #707070;
+}
+.g-dwell {
+  color: #b0803a;
+}
+.g-res {
+  color: #202020;
+}
+
+.readout {
+  margin: 0;
+  padding: 3px 5px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: pre-wrap;
+  background: var(--field);
+  box-shadow: var(--sunken);
+  min-height: 70px;
+}
+
+/* ------------------------------------------------------------ taskbar */
+
+.taskbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 3px;
+  background: var(--face);
+  box-shadow: inset 0 1px var(--hilight), inset 0 2px var(--light);
+}
+
+.taskbar .start {
+  min-width: 0;
+  padding: 2px 8px;
+  height: 24px;
+}
+
+.startmenu {
+  display: none;
+  position: absolute;
+  left: 2px;
+  bottom: 30px;
+  min-width: 200px;
+  padding: 2px;
+  z-index: 50;
+  background: var(--face);
+  box-shadow: var(--raised);
+}
+
+.startmenu.open {
+  display: block;
+}
+
+.startmenu button.item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  min-width: 0;
+  padding: 6px 18px;
+  box-shadow: none;
+}
+
+.startmenu button.item:hover {
+  background: var(--title-a);
+  color: var(--title-text);
+}
+
+.startmenu hr {
+  border: 0;
+  border-top: 1px solid var(--shadow);
+  border-bottom: 1px solid var(--hilight);
+  margin: 2px 0;
+}
+
+.window.away {
+  display: none;
+}
+
+.dialog-layer {
+  display: none;
+  position: absolute;
+  inset: 0;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.dialog-layer.open {
+  display: flex;
+}
+
+.dialog {
+  width: 460px;
+  max-width: calc(100% - 24px);
+  padding: 3px;
+  background: var(--face);
+  box-shadow: var(--raised);
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+
+.dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dialog-features {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dialog-text {
+  white-space: pre-wrap;
+}
+
+.btnrow.right {
+  justify-content: flex-end;
+}
+
+.taskbtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  width: 200px;
+  padding: 0 8px;
+  box-shadow: var(--pressed);
+  font-weight: bold;
+  background: repeating-conic-gradient(var(--face) 0 25%, var(--light) 0 50%) 0 0 / 2px 2px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.tray {
+  margin-left: auto;
+  height: 24px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  box-shadow: var(--sunken);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 900px) {
+  .main {
+    flex-direction: column;
+    overflow: auto;
+  }
+  .left {
+    width: auto;
+    max-width: none;
+    flex: none;
+    height: 520px;
+  }
+  .splitter {
+    display: none;
+  }
+  .right {
+    min-height: 480px;
+  }
+}
+
+/* ------------------------------------------- classic Mac (System 7 style) */
+/* Black on white, 1px outlines, striped title bar with a close box, and a
+   menu bar at the top in place of the taskbar. Same DOM as the other skins. */
+
+.skin-mac {
+  --desktop: #888;
+  --face: #fff;
+  --hilight: #fff;
+  --light: #fff;
+  --shadow: #000;
+  --dkshadow: #000;
+  --title-a: #fff;
+  --title-b: #fff;
+  --title-text: #000;
+  --sel-bg: #000;
+  --sel-text: #fff;
+  --link: #000;
+  --chart: #000;
+  --font: Geneva, 'Lucida Grande', Verdana, sans-serif;
+  --raised: inset 0 0 0 1px #000;
+  --sunken: inset 0 0 0 1px #000;
+  --pressed: inset 0 0 0 1px #000;
+}
+
+#app.skin-mac {
+  background: repeating-conic-gradient(#ddd 0 25%, #888 0 50%) 0 0 / 2px 2px;
+}
+
+.skin-mac .desktop {
+  inset: 22px 0 0 0;
+}
+
+.skin-mac .window {
+  inset: 6px 6px 8px 6px;
+  padding: 1px;
+  box-shadow: inset 0 0 0 1px #000, 2px 2px 0 #000;
+}
+
+.skin-mac .titlebar {
+  position: relative;
+  justify-content: center;
+  height: 20px;
+  padding: 0;
+  background: repeating-linear-gradient(to bottom, #000 0 1px, #fff 1px 3px);
+  box-shadow: 0 1px 0 #000;
+  margin-bottom: 1px;
+}
+
+.skin-mac .titlebar .tb-title {
+  padding: 0 12px;
+  background: #fff;
+  font-weight: bold;
+}
+
+.skin-mac .titlebar .tb-icon {
+  position: absolute;
+  left: 8px;
+  top: 4px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #000;
+}
+
+.skin-mac .tb-btns {
+  display: none;
+}
+
+.skin-mac button {
+  border-radius: 6px;
+  min-width: 0;
+}
+
+.skin-mac button:active:not(:disabled),
+.skin-mac button.pressed {
+  background: #000;
+  color: #fff;
+  padding: 3px 10px;
+}
+
+.skin-mac button.speed:active:not(:disabled),
+.skin-mac button.speed.pressed {
+  padding: 3px 7px;
+}
+
+.skin-mac button.small:active:not(:disabled) {
+  padding: 3px 0;
+}
+
+.skin-mac button:disabled {
+  color: #888;
+}
+
+.skin-mac .tab {
+  border-radius: 6px 6px 0 0;
+  background: #ddd;
+  box-shadow: inset 0 0 0 1px #000 !important;
+}
+
+.skin-mac .tab.active {
+  background: #fff;
+}
+
+.skin-mac .taskbar {
+  top: 0;
+  bottom: auto;
+  height: 22px;
+  gap: 16px;
+  padding: 0 10px;
+  background: #fff;
+  box-shadow: inset 0 -1px #000;
+}
+
+.skin-mac .taskbar .start {
+  height: 100%;
+  padding: 0 6px;
+  font-size: 14px;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.skin-mac .taskbar .start:active:not(:disabled) {
+  background: #000;
+}
+
+.skin-mac .taskbtn {
+  display: none;
+}
+
+.skin-mac .tray {
+  box-shadow: none;
+  padding: 0;
+}
+
+.skin-mac .startmenu {
+  top: 22px;
+  bottom: auto;
+  left: 8px;
+  box-shadow: inset 0 0 0 1px #000, 2px 2px 0 #000;
+}
+
+.skin-mac .startmenu button.item {
+  border-radius: 0;
+}
+
+.st-mac,
+.menu-fake {
+  display: none;
+}
+
+.skin-mac .st-win {
+  display: none;
+}
+
+.skin-mac .st-mac {
+  display: inline;
+}
+
+.skin-mac .menu-fake {
+  display: inline-block;
+  font-weight: bold;
+}
+
+/* -------------------------------------------------------------- charts */
+
+.chart {
+  position: relative;
+  margin: 2px 0 6px;
+  padding: 4px;
+  background: var(--field);
+  box-shadow: var(--sunken);
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.chart-grid {
+  stroke: color-mix(in srgb, var(--text) 18%, transparent);
+  stroke-width: 1;
+}
+
+.chart-text {
+  font: 10px var(--font);
+  fill: color-mix(in srgb, var(--text) 65%, transparent);
+}
+
+.chart-value {
+  font: bold 11px var(--font);
+  fill: var(--text);
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--chart);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.chart-cross {
+  stroke: color-mix(in srgb, var(--text) 45%, transparent);
+  stroke-width: 1;
+}
+
+.chart-dot {
+  fill: var(--chart);
+  stroke: var(--field);
+  stroke-width: 2;
+}
+
+.chart-tip {
+  position: absolute;
+  top: 2px;
+  transform: translateX(-50%);
+  padding: 1px 6px;
+  background: var(--face);
+  color: var(--text);
+  box-shadow: var(--raised);
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------- more skins */
+/* Same DOM as every other skin. Variables first, then only the layout each look needs. */
+
+/* Windows 95: Windows 98 without the title bar gradient. */
+.skin-win95 {
+  --title-b: #000080;
+}
+
+/* Windows 3.1: grey dialog faces, black frames, solid navy title. Keeps the normal bottom taskbar. */
+.skin-win31 {
+  --desktop: #c0c0c0;
+  --face: #c0c0c0;
+  --hilight: #ffffff;
+  --light: #ffffff;
+  --shadow: #808080;
+  --dkshadow: #000000;
+  --title-a: #000080;
+  --title-b: #000080;
+  --sel-bg: #000080;
+  --chart: #000080;
+  --font: Arial, 'MS Sans Serif', sans-serif;
+  --raised: inset -1px -1px #000, inset 1px 1px #fff, inset -2px -2px #808080;
+  --sunken: inset 1px 1px #808080, inset -1px -1px #fff, inset 2px 2px #000;
+  --pressed: inset 0 0 0 1px #000, inset 2px 2px #808080;
+}
+
+.skin-win31 .window {
+  padding: 5px;
+  box-shadow: inset 0 0 0 1px #000, inset 0 0 0 4px #c0c0c0, inset 0 0 0 5px #000;
+}
+
+/* Grid: system-menu box | centred title | buttons, so none of them can overlap. */
+.skin-win31 .titlebar {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  gap: 0;
+  height: 20px;
+  padding: 0;
+  box-shadow: 0 1px 0 #000;
+}
+
+.skin-win31 .titlebar .tb-title {
+  text-align: center;
+  font-weight: bold;
+}
+
+.skin-win31 .titlebar .tb-icon {
+  width: 20px;
+  height: 20px;
+  background: linear-gradient(#000, #000) center / 10px 3px no-repeat, #c0c0c0;
+  box-shadow: inset -1px 0 #000, inset 0 0 0 1px #fff;
+}
+
+.skin-win31 .titlebar .tb-btns {
+  margin-left: 0;
+  padding-right: 2px;
+  align-items: center;
+}
+
+.skin-mac .help-only {
+  display: none;
+}
+
+/* Windows XP (Luna): blue frame and title, beige face, rounded controls, green Start. */
+.skin-winxp {
+  --desktop: #3a6ea5;
+  --face: #ece9d8;
+  --hilight: #ffffff;
+  --light: #f4f2e8;
+  --shadow: #aca899;
+  --dkshadow: #716f64;
+  --title-a: #0058e6;
+  --title-b: #3a93ff;
+  --sel-bg: #316ac5;
+  --sel-text: #ffffff;
+  --link: #0000ee;
+  --chart: #316ac5;
+  --font: Tahoma, 'Segoe UI', Verdana, sans-serif;
+  --raised: inset 0 0 0 1px #919b9c;
+  --sunken: inset 0 0 0 1px #7f9db9;
+  --pressed: inset 0 0 0 1px #003c74;
+}
+
+#app.skin-winxp {
+  background: linear-gradient(to bottom, #6fa8e8 0 62%, #4a9a34 62% 100%);
+}
+
+.skin-winxp .window {
+  padding: 0 3px 3px;
+  border-radius: 8px 8px 0 0;
+  background: #ece9d8;
+  box-shadow: inset 0 0 0 3px #0054e3, 0 0 0 1px #003;
+}
+
+.skin-winxp .titlebar {
+  height: 26px;
+  margin: 0 -3px 3px;
+  padding: 0 5px 0 8px;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(to bottom, #0058e6 0%, #3a93ff 8%, #0058e6 25%, #0054e3 60%, #0058e6 88%, #003dd7 100%);
+  text-shadow: 1px 1px #0f1089;
+}
+
+.skin-winxp .tb-btn {
+  width: 21px;
+  height: 21px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #5b8ff5, #2a5fd6);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px #fff;
+  line-height: 19px;
+}
+
+.skin-winxp .tb-btn:last-child {
+  background: linear-gradient(135deg, #e8785a, #c0391a);
+}
+
+.skin-winxp button {
+  border-radius: 3px;
+  background: linear-gradient(to bottom, #fff, #ece9d8 85%, #d6d0c5);
+  box-shadow: inset 0 0 0 1px #003c74;
+}
+
+.skin-winxp button:active:not(:disabled),
+.skin-winxp button.pressed {
+  background: #d6d0c5;
+}
+
+.skin-winxp .tab {
+  border-radius: 3px 3px 0 0;
+  background: #f5f4ea;
+  box-shadow: inset 0 0 0 1px #919b9c !important;
+}
+
+.skin-winxp .tab.active {
+  background: #fcfcfe;
+  box-shadow: inset 0 3px 0 #ffc83c, inset 0 0 0 1px #919b9c !important;
+}
+
+.skin-winxp .taskbar {
+  height: 30px;
+  background: linear-gradient(to bottom, #3168d5 0%, #4993e6 8%, #245edb 20%, #245edb 85%, #1941a5 100%);
+  box-shadow: none;
+  color: #fff;
+}
+
+.skin-winxp .taskbar .start {
+  height: 30px;
+  margin: -2px 0 -2px -3px;
+  padding: 0 16px 0 10px;
+  border-radius: 0 12px 12px 0;
+  background: linear-gradient(to bottom, #5dbd5d, #2f8c2f 50%, #2a7f2a);
+  color: #fff;
+  font-style: italic;
+  box-shadow: inset 0 0 0 1px #1e5c1e;
+}
+
+.skin-winxp .taskbtn {
+  border-radius: 3px;
+  background: linear-gradient(to bottom, #1e52b7, #3c81f3);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px #0a3a9a;
+}
+
+.skin-winxp .tray {
+  background: linear-gradient(to bottom, #0f9bf0, #1290e8);
+  color: #fff;
+  box-shadow: inset 1px 0 #0a5ec0;
+}
+
+/* Amiga Workbench: grey faces, black outlines, blue title, orange selection. */
+.skin-amiga {
+  --desktop: #0055aa;
+  --face: #aaaaaa;
+  --hilight: #ffffff;
+  --light: #ffffff;
+  --shadow: #555555;
+  --dkshadow: #000000;
+  --title-a: #0055aa;
+  --title-b: #0055aa;
+  --title-text: #ffffff;
+  --sel-bg: #ff8800;
+  --sel-text: #000000;
+  --link: #0000aa;
+  --chart: #0055aa;
+  --font: 'Lucida Console', 'Courier New', Courier, monospace;
+  --font-size: 12px;
+  --raised: inset 0 0 0 1px #000, inset 1px 1px #fff, inset -2px -2px #555;
+  --sunken: inset 0 0 0 1px #000, inset -1px -1px #fff, inset 2px 2px #555;
+  --pressed: inset 0 0 0 1px #000, inset 2px 2px #555;
+}
+
+.skin-amiga .window {
+  padding: 3px;
+  box-shadow: inset 0 0 0 2px #000, inset 0 0 0 3px #fff;
+}
+
+.skin-amiga .titlebar {
+  height: 22px;
+  font-weight: normal;
+  box-shadow: inset 0 -2px #000;
+}
+
+.skin-amiga .tb-btn {
+  border-radius: 0;
+  box-shadow: inset 0 0 0 1px #000;
+  color: #000;
+}
+
+.skin-amiga .taskbar {
+  box-shadow: inset 0 2px #000;
+}
+
+/* BeOS: yellow tab title, flat pale-grey panels, thin black frame. */
+.skin-beos {
+  --desktop: #336699;
+  --face: #dcdcdc;
+  --hilight: #ffffff;
+  --light: #f0f0f0;
+  --shadow: #8a8a8a;
+  --dkshadow: #606060;
+  --title-a: #ffcb00;
+  --title-b: #ffcb00;
+  --title-text: #000000;
+  --sel-bg: #ffcb00;
+  --sel-text: #000000;
+  --link: #003c8c;
+  --chart: #336699;
+  --font: Verdana, 'Lucida Grande', 'Segoe UI', sans-serif;
+  --font-size: 11px;
+  --raised: inset 0 0 0 1px #606060;
+  --sunken: inset 0 0 0 1px #8a8a8a, inset 1px 1px #fff;
+  --pressed: inset 0 0 0 1px #606060, inset 1px 1px #8a8a8a;
+}
+
+.skin-beos .window {
+  padding: 0;
+  background: #dcdcdc;
+  box-shadow: inset 0 0 0 1px #000;
+}
+
+.skin-beos .titlebar {
+  align-self: flex-start;
+  max-width: 70%;
+  height: 20px;
+  margin: 0;
+  padding: 0 14px 0 6px;
+  border-radius: 0 8px 0 0;
+  box-shadow: inset -1px 0 #000, inset 0 1px #000;
+}
+
+.skin-beos .tb-btns {
+  display: none;
+}
+
+.skin-beos .main {
+  border-top: 1px solid #000;
+  margin-top: 0;
+}
+
+.skin-beos button {
+  border-radius: 2px;
+  background: linear-gradient(to bottom, #fff, #e0e0e0 80%, #c8c8c8);
+  box-shadow: inset 0 0 0 1px #606060;
+}
+
+.skin-beos button:active:not(:disabled),
+.skin-beos button.pressed {
+  background: #c8c8c8;
+}
+
+.skin-beos .taskbar {
+  background: #dcdcdc;
+  box-shadow: inset 0 1px #fff, inset 0 2px #f0f0f0;
+}
+
+/* Windows 3.1 has no taskbar, Start button or global menu: the system-menu box opens those items instead. */
+.tb-icon {
+  pointer-events: none;
+}
+
+.skin-win31 .window > .titlebar > .tb-icon {
+  pointer-events: auto;
+}
+
+.skin-win31 .desktop {
+  inset: 0;
+}
+
+.skin-win31 .taskbar {
+  display: none;
+}
+
+.skin-win31 .startmenu {
+  top: 26px;
+  bottom: auto;
+  left: 5px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #000, 2px 2px 0 #000;
+}
+
+.skin-win31 .startmenu button.item {
+  box-shadow: none;
+  border-radius: 0;
+}
+
+/* Maximize and minimize are up and down triangles. */
+.skin-win31 .tb-btn {
+  font-size: 0;
+}
+
+.skin-win31 .tb-btn::after {
+  font-size: 9px;
+  content: '\25BC';
+}
+
+.skin-win31 .tb-btn:nth-child(2)::after {
+  content: '\25B2';
+}
+
+.skin-win31 .tb-btn:nth-child(3) {
+  display: none;
+}
+
+/* Amiga Workbench, AmigaOS 3.x look: grey backdrop, steel-blue title bars with black text, close gadget at the
+   left, depth gadget at the right, and the screen title bar across the top. Overrides the first Amiga block. */
+.skin-amiga {
+  --desktop: #aaaaaa;
+  --title-a: #6688bb;
+  --title-b: #6688bb;
+  --title-text: #000000;
+  --sel-bg: #6688bb;
+  --sel-text: #000000;
+  --chart: #4466aa;
+  --raised: inset 0 0 0 1px #000, inset 2px 2px #fff, inset -2px -2px #555;
+  --sunken: inset 0 0 0 1px #fff, inset 0 0 0 2px #000;
+  --pressed: inset 0 0 0 1px #000, inset 2px 2px #555;
+}
+
+.skin-amiga .window > .titlebar > .tb-icon {
+  pointer-events: auto;
+}
+
+.skin-amiga .titlebar {
+  font-weight: bold;
+  box-shadow: inset 0 -1px #000, inset 0 1px #fff;
+}
+
+/* Close gadget: a small outlined box with an inner square. */
+.skin-amiga .titlebar .tb-icon {
+  width: 14px;
+  height: 14px;
+  background: linear-gradient(#000, #000) center / 4px 6px no-repeat, #fff;
+  box-shadow: inset 0 0 0 1px #000;
+}
+
+/* One depth gadget (two overlapping squares); the other two buttons are not part of this look. */
+.skin-amiga .tb-btn {
+  font-size: 0;
+  width: 18px;
+  height: 16px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #000;
+}
+
+.skin-amiga .tb-btn::after {
+  font-size: 11px;
+  line-height: 14px;
+  color: #000;
+  content: '\2750';
+}
+
+.skin-amiga .tb-btn:nth-child(1),
+.skin-amiga .tb-btn:nth-child(3) {
+  display: none;
+}
+
+/* The screen title bar: no Start button, no taskbar. The close gadget opens the menu. */
+.skin-amiga .desktop {
+  inset: 22px 0 0 0;
+}
+
+.skin-amiga .taskbar {
+  top: 0;
+  bottom: auto;
+  height: 22px;
+  padding: 0 8px;
+  background: #aaa;
+  box-shadow: inset 0 -2px #000, inset 0 -3px #fff;
+}
+
+.skin-amiga .taskbar .start,
+.skin-amiga .menu-fake {
+  display: none;
+}
+
+.skin-amiga .taskbtn {
+  flex: 1;
+  width: auto;
+  height: 100%;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  font-weight: bold;
+}
+
+.skin-amiga .taskbtn .tb-icon {
+  display: none;
+}
+
+.skin-amiga .tray {
+  box-shadow: none;
+  padding: 0;
+  font-weight: bold;
+}
+
+.skin-amiga .startmenu {
+  top: 48px;
+  bottom: auto;
+  left: 8px;
+  background: #aaa;
+  box-shadow: inset 0 0 0 2px #000, inset 0 0 0 3px #fff, 2px 2px 0 #000;
+}
+
+.skin-amiga .startmenu button.item {
+  box-shadow: none;
+  border-radius: 0;
+}
+
+/* Windows 3.1 title buttons: same full-height square as the system-menu box, with a divider on the left. */
+.skin-win31 .titlebar .tb-btns {
+  gap: 0;
+  padding-right: 0;
+  align-items: stretch;
+}
+
+.skin-win31 .tb-btn {
+  width: 20px;
+  height: 20px;
+  line-height: 20px;
+  border-radius: 0;
+  background: #c0c0c0;
+  box-shadow: inset 1px 0 #000, inset 0 0 0 1px #fff;
+  color: #000;
+}
+
+.skin-win31 .tb-btn::after {
+  font-size: 8px;
+  line-height: 20px;
+}
+
+/* BeOS refinement: the window floats on the desktop, the tab has rounded shoulders and a small close box. */
+.skin-beos .window {
+  inset: 10px;
+  box-shadow: inset 0 0 0 1px #000, 3px 3px 0 rgba(0, 0, 0, 0.3);
+}
+
+.skin-beos .titlebar {
+  height: 22px;
+  padding: 0 18px 0 8px;
+  border-radius: 8px 8px 0 0;
+  box-shadow: inset 0 0 0 1px #000;
+  font-weight: bold;
+}
+
+.skin-beos .titlebar .tb-icon {
+  width: 10px;
+  height: 10px;
+  border-radius: 0;
+  background: #ffe680;
+  box-shadow: inset 0 0 0 1px #000;
+}
+
+/* BeOS R5, from reference screenshots: yellow tab sitting on a thin black frame with the desktop showing to its
+   right, close box left and zoom box right, Be/OS logo in a Deskbar across the top, narrow Swiss font. */
+.skin-beos {
+  --face: #d8d8d8;
+  --light: #ececec;
+  --font: 'Swis721 BT', Arial, Helvetica, sans-serif;
+  --font-size: 11px;
+  --raised: inset 0 0 0 1px #000;
+  --sunken: inset 0 0 0 1px #888, inset 1px 1px #fff;
+  --pressed: inset 0 0 0 1px #000, inset 1px 1px #888;
+}
+
+.skin-beos .desktop {
+  inset: 24px 0 0 0;
+}
+
+.skin-beos .window {
+  inset: 14px 14px 14px 14px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.skin-beos .titlebar {
+  position: relative;
+  z-index: 1;
+  align-self: flex-start;
+  max-width: 70%;
+  height: 21px;
+  margin: 0 0 -1px;
+  padding: 0 8px 0 6px;
+  gap: 8px;
+  border-radius: 0;
+  background: linear-gradient(to bottom, #ffe45a 0, #ffcb00 18%, #ffcb00 80%, #e0ab00 100%);
+  box-shadow: inset 1px 1px #fff3a0, inset 0 -1px #c89600;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 100%, 0 100%);
+  padding-right: 22px;
+  font-weight: bold;
+}
+
+.skin-beos .titlebar .tb-title {
+  flex: 1;
+  text-align: center;
+}
+
+/* Close box: a small light square with a dark edge. */
+.skin-beos .titlebar .tb-icon {
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, #fff6c0, #ffd84a);
+  box-shadow: inset 0 0 0 1px #7a5c00;
+}
+
+/* Zoom box: two overlapping squares, drawn from the second title button. */
+.skin-beos .tb-btns {
+  display: flex;
+  margin-left: 0;
+}
+
+.skin-beos .tb-btn {
+  display: none;
+}
+
+.skin-beos .tb-btn:nth-child(2) {
+  display: block;
+  position: relative;
+  width: 13px;
+  height: 12px;
+  font-size: 0;
+  background: linear-gradient(135deg, #fff6c0, #ffd84a);
+  box-shadow: inset 0 0 0 1px #7a5c00;
+}
+
+.skin-beos .tb-btn:nth-child(2)::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 6px;
+  height: 5px;
+  box-shadow: 0 0 0 1px #7a5c00;
+}
+
+.skin-beos .main {
+  border: 1px solid #000;
+  margin: 0;
+  background: #d8d8d8;
+  box-shadow: inset 1px 1px #fff, 3px 3px 0 rgba(0, 0, 0, 0.25);
+}
+
+.skin-beos .taskbar {
+  top: 0;
+  bottom: auto;
+  height: 24px;
+  padding: 0 6px;
+  gap: 8px;
+  background: #d8d8d8;
+  box-shadow: inset 0 -1px #808080, inset 0 1px #fff;
+}
+
+.skin-beos .taskbar .start {
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.skin-beos .st-win {
+  display: none;
+}
+
+.st-be {
+  display: none;
+}
+
+.skin-beos .st-be {
+  display: inline-flex;
+  font: bold 12px Georgia, 'Times New Roman', serif;
+}
+
+.st-be i {
+  font-style: normal;
+  padding: 1px 5px;
+  color: #fff;
+}
+
+.st-be i:first-child {
+  background: #0a50d0;
+  border-radius: 3px 0 0 3px;
+}
+
+.st-be i:last-child {
+  background: #e0101a;
+  border-radius: 0 3px 3px 0;
+}
+
+.skin-beos .taskbtn {
+  height: 20px;
+  background: #e8e8e8;
+  box-shadow: inset 0 0 0 1px #909090;
+  font-weight: normal;
+}
+
+.skin-beos .tray {
+  height: 20px;
+  background: #e8e8e8;
+}
+
+.skin-beos .startmenu {
+  top: 24px;
+  bottom: auto;
+  left: 6px;
+  box-shadow: inset 0 0 0 1px #000, 2px 2px 0 rgba(0, 0, 0, 0.3);
+}
+
+.skin-beos .startmenu button.item {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* BeOS tab: square right edge, not angled. */
+.skin-beos .titlebar {
+  clip-path: none;
+  padding-right: 8px;
+  box-shadow: inset 1px 1px #fff3a0, inset -1px 0 #9a7a00, inset 0 -1px #c89600;
+}
