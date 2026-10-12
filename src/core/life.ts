@@ -665,13 +665,13 @@ export function livingSeries(life: SiteLife, dwelling: number | null, offset = 0
   return out;
 }
 
-/** The district view with live headcounts and footprints (homes grow). The settlement's summary population moves by the district's net change. */
+/** The district view with live headcounts and footprints (homes grow). The settlement's population is the people living now. */
 export function applyLife(view: SiteView, life: SiteLife): SiteView {
   const counts = new Array<number>(view.dwellings.length).fill(0);
   for (const p of life.people) if (p.deathTick === null) counts[p.residence]!++;
   return {
     ...view,
-    population: Math.max(0, view.population + life.net),
+    population: life.living,
     dwellings: view.dwellings.map((d, i) => ({ ...d, extra: [...life.extension(i)], capacity: life.capacity(i), residents: counts[i] ?? d.residents })),
   };
 }
