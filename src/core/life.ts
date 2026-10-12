@@ -17,7 +17,18 @@ export const TICKS_PER_WEEK = WEEK;
 const ADULT = 18;
 const FERTILE_MAX = 50; // women: no births from this age on
 const MALE_FERTILE_MAX = 70;
-const MAX_OCCUPANTS = 10;
+/** How many people a building of `cells` cells holds: a couple of rooms plus one person per two cells, never over ten. */
+export function capacityOf(cells: number): number {
+  return Math.min(10, 2 + Math.floor(cells / 2));
+}
+/** A grown child still at home in a full house moves out this many times faster. */
+const CROWDED_LEAVE = 4;
+/** A home full for this many weeks in a row takes one more cell of free ground beside it. */
+const EXPAND_AFTER_WEEKS = 13;
+/** The largest a home grows: 16 cells, where capacity reaches its cap of 10. */
+const MAX_HOME_AREA = 16;
+/** District grid codes a home may grow onto (CELL.ground, CELL.green in town.ts); roads, plaza and water stay. */
+const FREE_CELLS = [0, 3];
 const BIRTH_PER_WEEK = 0.12 / 52; // per fertile woman (before her own fertility) living with an eligible man; tuned so districts stay roughly level
 const TWINS = 0.02;
 /** Chance per week that a partner moves in from elsewhere when a fertile woman has no eligible man in the building. */
@@ -145,7 +156,14 @@ function seasonOf(base: number, week: number): { deaths: number; births: number 
 export interface SiteLifeSeed {
   path: string;
   /** `residents` is how many people live there at tick 0; who they are and how they are related comes from the model. */
-  dwellings: { path: string; kind: string; residents: number }[];
+  dwellings: { path: string; kind: string; residents: number; x: number; y: number; w: number; h: number }[];
+  /** The district grid (side n, one terrain code per cell), so a home can find free ground to grow into. */
+  grid: { n: number; cells: Uint8Array };
+}
+
+export interface Cell {
+  x: number;
+  y: number;
 }
 
 export class SiteLife {
@@ -162,11 +180,30 @@ export class SiteLife {
   private alive: Person[] = [];
   /** byOrigin[d][n] = id of the person whose path is `<dwelling d>/p<n>`. */
   private readonly byOrigin: number[][];
+  /** Cells each dwelling has gained beyond its rectangle (homes that stayed full), in the order they were added. */
+  private readonly extra: Cell[][];
+  private readonly area: number[];
+  private readonly origin: { x: number; y: number; w: number; h: number }[];
+  /** 1 where any building stands. */
+  private readonly occ: Uint8Array;
+  private readonly grid: { n: number; cells: Uint8Array };
+  /** Consecutive weeks each dwelling has been full. */
+  private readonly fullWeeks: number[];
+  /** Homes that cannot grow any more (no free cell, or at the size cap): never tried again, since cells only fill. */
+  private readonly boxedIn: boolean[];
 
   constructor(seed: string, data: SiteLifeSeed) {
     this.base = hash32(`${seed}|${data.path}|life`);
     this.kinds = data.dwellings.map((d) => d.kind);
     this.byOrigin = data.dwellings.map(() => []);
+    this.extra = data.dwellings.map(() => []);
+    this.area = data.dwellings.map((d) => d.w * d.h);
+    this.grid = data.grid;
+    this.occ = new Uint8Array(data.grid.n * data.grid.n);
+    this.origin = data.dwellings.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h }));
+    for (const d of data.dwellings) this.paintRect(d);
+    this.fullWeeks = data.dwellings.map(() => 0);
+    this.boxedIn = data.dwellings.map(() => false);
     data.dwellings.forEach((d, di) => this.populate(di, d.kind, d.residents));
     this.initial = this.people.length;
   }
@@ -295,6 +332,71 @@ export class SiteLife {
     return person;
   }
 
+  /** Cells a home has grown into beyond its original rectangle. */
+  extension(dwelling: number): readonly Cell[] {
+    return this.extra[dwelling]!;
+  }
+
+  /** People a dwelling holds at most right now; none for works and the hall. */
+  capacity(dwelling: number): number {
+    const k = this.kinds[dwelling];
+    if (k !== 'home' && k !== 'shop') return 0;
+    return capacityOf(this.area[dwelling]!);
+  }
+
+  private paintRect(r: { x: number; y: number; w: number; h: number }): void {
+    const n = this.grid.n;
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) this.occ[y * n + x] = 1;
+  }
+
+  /** Whether a cell has another building on any of its eight neighbors (buildings never join). */
+  private touchesOther(key: number, mine: Set<number>): boolean {
+    const n = this.grid.n;
+    const x = key % n;
+    const y = Math.floor(key / n);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= n || ny >= n) continue;
+        const k = ny * n + nx;
+        if (this.occ[k] && !mine.has(k)) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Add one cell to a full home: a free ground or garden cell that touches it on a side and no other building at all. The candidates are listed in
+   * a fixed scan order and one is rolled from (week, dwelling). Homes are processed in index order, so the earlier
+   * one wins a cell both want. Returns whether it grew.
+   */
+  private expand(d: number, week: number): boolean {
+    if (this.area[d]! >= MAX_HOME_AREA) return false;
+    const n = this.grid.n;
+    const own = this.origin[d]!;
+    const mine = new Set<number>();
+    for (let y = own.y; y < own.y + own.h; y++) for (let x = own.x; x < own.x + own.w; x++) mine.add(y * n + x);
+    for (const c of this.extra[d]!) mine.add(c.y * n + c.x);
+    const cand = new Set<number>();
+    for (const k of mine) {
+      const x = k % n;
+      const y = Math.floor(k / n);
+      for (const [nx, ny] of [[x, y - 1], [x - 1, y], [x + 1, y], [x, y + 1]] as const) {
+        if (nx < 0 || ny < 0 || nx >= n || ny >= n) continue;
+        const nk = ny * n + nx;
+        if (!mine.has(nk) && !this.occ[nk] && FREE_CELLS.includes(this.grid.cells[nk]!) && !this.touchesOther(nk, mine)) cand.add(nk);
+      }
+    }
+    if (cand.size === 0) return false;
+    const list = [...cand].sort((a, b) => a - b);
+    const pick = list[Math.floor(roll(this.base, week, d, 25) * list.length)]!;
+    this.extra[d]!.push({ x: pick % n, y: Math.floor(pick / n) });
+    this.occ[pick] = 1;
+    this.area[d]!++;
+    return true;
+  }
+
   person(dwelling: number, local: number): Person | undefined {
     const id = this.byOrigin[dwelling]?.[local];
     return id === undefined ? undefined : this.people[id];
@@ -347,7 +449,8 @@ export class SiteLife {
       const withParent = here.some((q) => q.id === p.mother || q.id === p.father);
       const crowded = p.mother === null && here.length >= 3; // no mother on record (a lone father's children): leave a crowded home
       if (!withParent && !crowded) continue;
-      if (roll(base, week, p.id, 10) >= LEAVE_PER_WEEK) continue;
+      const full = here.length >= this.capacity(p.residence);
+      if (roll(base, week, p.id, 10) >= LEAVE_PER_WEEK * (full ? CROWDED_LEAVE : 1)) continue;
       // A couple founds a household: they take a vacant home together.
       const vacantNow: number[] = [];
       home.forEach((g, d) => {
@@ -378,7 +481,7 @@ export class SiteLife {
       }
       const open: number[] = [];
       home.forEach((g, d) => {
-        if (d !== p.residence && this.kinds[d] === 'home' && g.length < MAX_OCCUPANTS) open.push(d);
+        if (d !== p.residence && this.kinds[d] === 'home' && g.length < this.capacity(d)) open.push(d);
       });
       if (open.length === 0) continue;
       const matches = open.filter((d) => home[d]!.some((q) => canPair(p, q, tick)));
@@ -395,9 +498,10 @@ export class SiteLife {
     home.forEach((group, d) => {
       const men = group.filter((p) => p.sex === 'm' && ageAt(p, tick) >= ADULT && ageAt(p, tick) <= MALE_FERTILE_MAX);
       if (men.length === 0 && !group.some((p) => p.sex === 'f')) return;
+      const cap = this.capacity(d);
       let count = group.length;
       for (const f of [...group]) {
-        if (count >= MAX_OCCUPANTS) break;
+        if (count >= cap) break;
         if (f.sex !== 'f') continue;
         const age = ageAt(f, tick);
         if (age < ADULT || age >= FERTILE_MAX || tick < f.restUntil) continue;
@@ -419,7 +523,7 @@ export class SiteLife {
         const father = partners[Math.floor(roll(base, week, f.id, 5) * partners.length)]!;
         // Spacing varies from about 9 to 25 months before she can conceive again.
         f.restUntil = tick + (40 + Math.floor(roll(base, week, f.id, 15) * 65)) * TICKS_PER_WEEK;
-        const babies = roll(base, week, f.id, 16) < TWINS && count + 1 < MAX_OCCUPANTS ? 2 : 1;
+        const babies = roll(base, week, f.id, 16) < TWINS && count + 1 < cap ? 2 : 1;
         for (let k = 0; k < babies; k++) {
           const baby = this.add({
             origin: d,
@@ -434,6 +538,16 @@ export class SiteLife {
           count++;
           emit('birth', d);
         }
+      }
+    });
+
+    // A home that has stayed full extends into free ground beside it.
+    home.forEach((g, d) => {
+      if (this.kinds[d] !== 'home') return;
+      if (g.length < this.capacity(d)) this.fullWeeks[d] = 0;
+      else if (!this.boxedIn[d] && ++this.fullWeeks[d]! >= EXPAND_AFTER_WEEKS) {
+        if (this.expand(d, week)) this.fullWeeks[d] = 0;
+        else this.boxedIn[d] = true;
       }
     });
 
@@ -477,7 +591,7 @@ export class SiteLife {
       if (kind >= 0.6) {
         // Children are never older than their parents' age minus ADULT, so both were adults at the birth.
         const kidMax = Math.min(14, momAge - ADULT - 1, dadAge - ADULT - 1); // -1: birthdays are spread through the year
-        const kids = 1 + Math.floor(r(5) * 3);
+        const kids = Math.min(1 + Math.floor(r(5) * 3), Math.max(0, this.capacity(d) - 2)); // what fits
         let youngest = -Infinity;
         for (let i = 0; i < kids; i++) {
           const kid = mk(r(6 + i) < 0.5 ? 'f' : 'm', Math.floor(r(9 + i) * (kidMax + 1)), 4 + i, [mom.id, dad.id]);
@@ -551,13 +665,13 @@ export function livingSeries(life: SiteLife, dwelling: number | null, offset = 0
   return out;
 }
 
-/** The district view with live headcounts. The settlement's summary population moves by the district's net change. */
+/** The district view with live headcounts and footprints (homes grow). The settlement's summary population moves by the district's net change. */
 export function applyLife(view: SiteView, life: SiteLife): SiteView {
   const counts = new Array<number>(view.dwellings.length).fill(0);
   for (const p of life.people) if (p.deathTick === null) counts[p.residence]!++;
   return {
     ...view,
     population: Math.max(0, view.population + life.net),
-    dwellings: view.dwellings.map((d, i) => ({ ...d, residents: counts[i] ?? d.residents })),
+    dwellings: view.dwellings.map((d, i) => ({ ...d, extra: [...life.extension(i)], capacity: life.capacity(i), residents: counts[i] ?? d.residents })),
   };
 }

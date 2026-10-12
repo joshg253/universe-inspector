@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
 import { orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
-import { SiteLife, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, livingSeries, residenceAt } from '../src/core/life';
+import { SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, residenceAt } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
 import { rngFor } from '../src/core/rng';
@@ -123,7 +123,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
   const site = bodySites(seed, 0, bi)[0]!;
   const data = siteLifeSeed(seed, 0, bi, site.index);
   const WEEKS = 52 * 40;
-  const snapshot = (l: SiteLife) => json(l.people);
+  const snapshot = (l: SiteLife) => json([l.people, data.dwellings.map((_, i) => l.extension(i))]);
 
   // Folding in one jump equals stepping week by week (so viewing late equals watching all along).
   const stepped = new SiteLife(seed, data);
@@ -218,6 +218,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
     if (p.moves.length > 0) assert.equal(data.dwellings[p.residence]!.kind === 'home' || p.residence === p.origin, true);
   }
   assert.ok(Math.max(...occupancy.values()) <= 10, 'no dwelling holds more than ten people');
+  for (const [di, n] of occupancy) assert.ok(n <= stepped.capacity(di), 'no dwelling holds more than its footprint allows');
+  assert.deepEqual([2, 4, 6, 9, 12, 100].map(capacityOf), [3, 4, 5, 6, 8, 10]);
 
   // Age goes up one per year, and the record without a running district shows the same age as the model at tick 0.
   const d0 = data.dwellings.findIndex((x) => x.residents > 0);
@@ -359,6 +361,96 @@ assert.equal(viewLevel('s1/b2'), 'body');
     assert.ok(arrivedKids > 0, 'households with children arrive');
     assert.ok(arrivedKidsMoved > 0, 'children who arrived with a household can leave home and found their own');
     assert.ok(end > start * 0.6 && end < start * 1.6, `population after a century: ${start} -> ${end}`);
+  }
+
+  // Housing capacity and growth: nobody starts or lives in a home past its footprint; homes only ever grow, one cell at
+  // a time, into free ground touching them, never over a road, water, the plaza or another building; works and the
+  // hall stay as built.
+  {
+    let grew = 0;
+    let homes = 0;
+    let bent = 0;
+    for (const s of ['alpha', 'beta', 'gamma']) {
+      for (const b of settledBodyIndexes(s, 0)) {
+        for (const st of bodySites(s, 0, b)) {
+          const sd = siteLifeSeed(s, 0, b, st.index);
+          const l = new SiteLife(s, sd);
+          sd.dwellings.forEach((dw, i) => {
+            if (dw.kind === 'home' || dw.kind === 'shop') assert.ok(dw.residents <= l.capacity(i), 'a home starts within its capacity');
+          });
+          for (let y = 1; y <= 100; y++) {
+            l.advanceTo(52 * y);
+            sd.dwellings.forEach((_, i) => assert.ok(l.residents(i).length <= l.capacity(i), `${s} ${st.path} d${i} year ${y}: over capacity`));
+          }
+          const n = sd.grid.n;
+          const taken = new Map<number, number>();
+          let owner = -1;
+          const claim = (x: number, y: number) => {
+            const key = y * n + x;
+            assert.equal(taken.has(key), false, 'two buildings never share a cell');
+            taken.set(key, owner);
+            return key;
+          };
+          const added: [number, number, number][] = [];
+          sd.dwellings.forEach((dw, i) => {
+            owner = i;
+            const own = new Set<number>();
+            for (let y = dw.y; y < dw.y + dw.h; y++) for (let x = dw.x; x < dw.x + dw.w; x++) own.add(claim(x, y));
+            const ext = l.extension(i);
+            if (dw.kind !== 'home') assert.equal(ext.length, 0, 'only homes grow');
+            else homes++;
+            assert.ok(dw.w * dw.h + ext.length <= Math.max(16, dw.w * dw.h), 'growth is capped');
+            assert.equal(l.capacity(i), dw.kind === 'works' || dw.kind === 'hall' ? 0 : Math.min(10, 2 + Math.floor((dw.w * dw.h + ext.length) / 2)));
+            if (ext.length > 0) grew++;
+            // Each added cell is free ground or garden and touches the building as it stood when the cell was added.
+            const cells = new Set(own);
+            for (const c of ext) {
+              const key = claim(c.x, c.y);
+              assert.ok([0, 3].includes(sd.grid.cells[key]!), 'a home grows only onto ground or garden');
+              const touches = [key - 1, key + 1, key - n, key + n].some((k) => cells.has(k) && Math.abs((k % n) - c.x) + Math.abs(Math.floor(k / n) - c.y) === 1);
+              assert.ok(touches, 'a new cell touches its building on a side');
+              cells.add(key);
+              added.push([i, c.x, c.y]);
+            }
+            const xs = [...cells].map((k) => k % n);
+            const ys = [...cells].map((k) => Math.floor(k / n));
+            const bbox = (Math.max(...xs) - Math.min(...xs) + 1) * (Math.max(...ys) - Math.min(...ys) + 1);
+            if (bbox > cells.size) bent++;
+          });
+          // A grown cell never has another building beside it, corners included.
+          for (const [i, x, y] of added) {
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                if (x + dx < 0 || x + dx >= n || y + dy < 0 || y + dy >= n) continue;
+                const o = taken.get((y + dy) * n + (x + dx));
+                assert.ok(o === undefined || o === i, 'grown homes never join another building');
+              }
+            }
+          }
+        }
+      }
+    }
+    // A full home grows only after 13 full weeks in a row: a tiny full home, many seeds, none by week 12, some by 14.
+    {
+      const tiny: SiteLifeSeed = {
+        path: 's0/b0/t0',
+        dwellings: [{ path: 's0/b0/t0/d0', kind: 'home', residents: 3, x: 2, y: 2, w: 2, h: 1 }],
+        grid: { n: 8, cells: new Uint8Array(64) },
+      };
+      let early = 0;
+      let late = 0;
+      for (let k = 0; k < 40; k++) {
+        const l = new SiteLife(`tiny${k}`, tiny);
+        l.advanceTo(12);
+        if (l.extension(0).length > 0) early++;
+        l.advanceTo(14);
+        if (l.extension(0).length > 0) late++;
+      }
+      assert.equal(early, 0, 'no home grows before it has been full for 13 weeks');
+      assert.ok(late > 10, `a full home grows after 13 weeks (${late} of 40)`);
+    }
+    assert.ok(grew > 0, `some homes grow over a century (${grew} of ${homes})`);
+    assert.ok(bent > 0, 'grown homes are not all rectangles');
   }
 
   // Fast-forwarding a long time must stay cheap.

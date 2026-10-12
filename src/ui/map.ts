@@ -29,6 +29,41 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
+/** Every cell a dwelling covers: its rectangle, then the cells it has grown into. */
+function footprint(d: { x: number; y: number; w: number; h: number; extra?: { x: number; y: number }[] }): { x: number; y: number }[] {
+  const out: { x: number; y: number }[] = [];
+  for (let y = 0; y < d.h; y++) for (let x = 0; x < d.w; x++) out.push({ x: d.x + x, y: d.y + y });
+  return d.extra ? out.concat(d.extra) : out;
+}
+
+/**
+ * Stroke the outer edge of a set of cells (no lines between its own cells). `inset` moves each edge toward the inside
+ * (0.5 for a crisp 1px line on the cell border) or, when negative, outside it (a halo); edges run the full cell length,
+ * and a halo's ends are extended so its corners meet.
+ */
+function outline(
+  ctx: CanvasRenderingContext2D,
+  cells: { x: number; y: number }[],
+  X: (v: number) => number,
+  Y: (v: number) => number,
+  inset: number,
+): void {
+  const has = new Set(cells.map((c) => c.y * 4096 + c.x));
+  const e = Math.max(0, -inset);
+  ctx.beginPath();
+  for (const { x, y } of cells) {
+    const x0 = X(x);
+    const y0 = Y(y);
+    const x1 = X(x + 1);
+    const y1 = Y(y + 1);
+    if (!has.has((y - 1) * 4096 + x)) { ctx.moveTo(x0 - e, y0 + inset); ctx.lineTo(x1 + e, y0 + inset); }
+    if (!has.has((y + 1) * 4096 + x)) { ctx.moveTo(x0 - e, y1 - inset); ctx.lineTo(x1 + e, y1 - inset); }
+    if (!has.has(y * 4096 + x - 1)) { ctx.moveTo(x0 + inset, y0 - e); ctx.lineTo(x0 + inset, y1 + e); }
+    if (!has.has(y * 4096 + x + 1)) { ctx.moveTo(x1 - inset, y0 - e); ctx.lineTo(x1 - inset, y1 + e); }
+  }
+  ctx.stroke();
+}
+
 export class MapCanvas {
   readonly root: HTMLDivElement;
   pack: Pack;
@@ -526,10 +561,11 @@ export class MapCanvas {
     if (showDwellings) {
       for (const d of v.dwellings) {
         ctx.fillStyle = pal.dwelling[d.kind];
-        ctx.fillRect(X(d.x), Y(d.y), d.w * s, d.h * s);
+        const cells = footprint(d);
+        for (const c of cells) ctx.fillRect(X(c.x), Y(c.y), s, s);
         ctx.strokeStyle = 'rgba(0,0,0,0.55)';
         ctx.lineWidth = 1;
-        ctx.strokeRect(X(d.x) + 0.5, Y(d.y) + 0.5, d.w * s - 1, d.h * s - 1);
+        outline(ctx, cells, X, Y, 0.5);
       }
     }
 
@@ -543,7 +579,7 @@ export class MapCanvas {
       v.dwellings.forEach((d, i) => {
         if (dyn && dark > 0.15 && dyn.lit[i]) {
           ctx.fillStyle = `rgba(255,215,94,${Math.min(1, dark + 0.3)})`;
-          // One lit window per two cells of footprint, so a big building glows more than a shed.
+          // One lit window per two cells of footprint, so a big building glows more than a shed; a grown cell adds a half.
           const nx = Math.max(1, Math.floor(d.w / 2));
           const ny = Math.max(1, Math.floor(d.h / 2));
           for (let j = 0; j < ny; j++) {
@@ -551,13 +587,17 @@ export class MapCanvas {
               ctx.fillRect(X(d.x + (i + 0.5) * (d.w / nx)) - s * 0.4, Y(d.y + (j + 0.5) * (d.h / ny)) - s * 0.4, s * 0.8, s * 0.8);
             }
           }
+          (d.extra ?? []).forEach((c, k) => {
+            if (k % 2 === 0) ctx.fillRect(X(c.x + 0.5) - s * 0.4, Y(c.y + 0.5) - s * 0.4, s * 0.8, s * 0.8);
+          });
         }
         if (this.features.inhabitants && this.marks['site.residents'] !== false && s >= 6) {
           ctx.fillStyle = 'rgba(255,255,255,0.9)';
-          const n = Math.min(d.residents, d.w * d.h);
+          const cells = footprint(d);
+          const n = Math.min(d.residents, cells.length);
           for (let k = 0; k < n; k++) {
             ctx.beginPath();
-            ctx.arc(X(d.x + 0.5 + (k % d.w)), Y(d.y + 0.5 + Math.floor(k / d.w)), Math.max(1.5, s * 0.14), 0, TAU);
+            ctx.arc(X(cells[k]!.x + 0.5), Y(cells[k]!.y + 0.5), Math.max(1.5, s * 0.14), 0, TAU);
             ctx.fill();
           }
         }
@@ -570,9 +610,10 @@ export class MapCanvas {
         if (this.isSel(d.path)) {
           ctx.strokeStyle = pal.mark.selected;
           ctx.lineWidth = 2;
-          ctx.strokeRect(X(d.x) - 2, Y(d.y) - 2, d.w * s + 4, d.h * s + 4);
+          outline(ctx, footprint(d), X, Y, -2);
         }
         this.hits.push({ path: d.path, x: X(d.x), y: Y(d.y), r: 0, w: d.w * s, h: d.h * s });
+        for (const c of d.extra ?? []) this.hits.push({ path: d.path, x: X(c.x), y: Y(c.y), r: 0, w: s, h: s });
       });
       for (const d of v.dwellings) {
         if (this.isSel(d.path) || this.hover === d.path) {
