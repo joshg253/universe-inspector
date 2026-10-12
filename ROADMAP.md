@@ -3,6 +3,11 @@
 Living list. New ideas go in the Inbox first, then get sorted into a section.
 Status: `[ ]` idea, `[~]` in progress, `[x]` done.
 
+## Direction
+
+A world that plays itself: SimCity-style towns that grow and balance (housing, food, industry) with Age of Empires-style
+progression through ages, all deterministic from the seed. You watch and inspect; the instruments come last.
+
 ## Status (what exists)
 
 - [x] Seeded, path-addressed generation: universe, system, planet, settlement district, dwelling, person, anomaly
@@ -34,11 +39,50 @@ Status: `[ ]` idea, `[~]` in progress, `[x]` done.
       over centuries, links to parents/children/home, charts. Open: moving between settlements, abandoned buildings and
       ruins, marriage/household formation beyond pairing, named newborn households, moves in the event log,
       population consistent above district level, saving life state as canon.
+- [ ] **Housing capacity and growth:** capacity is a flat 10 per home whatever its size, and nothing gives when a home
+      is full. Capacity from the footprint (about 2 + area/2, capped at 10); crowding pushes the eldest grown child or a
+      couple out; a home over its comfortable size for a while extends into free ground next to it (never road, water or
+      another building; earlier index wins a contested cell; decided in the weekly fold, so still pure) and the map
+      shows it grow. Needs the town grid and building rectangles in `SiteLifeSeed`. New buildings come after, under
+      founding dates below.
+      Homelessness: `residence` becomes optional (none = unhoused). People end up there when their home is lost (ruin),
+      a household is pushed out, or migrants arrive with no vacancy; they leave by taking the next vacant home (or
+      squatting a ruin). Higher mortality in winter and famine years, lower fertility, shown in streets and plaza.
+      The unhoused count per district is a measurable stress signal that feeds economic pull.
+- [ ] **Ages and what gets built:** no calendar year (systems evolve separately). A fixed ordered ladder of ages
+      (about 6, no skipping); each settlement has a starting rung and a pace from the seed, `ageAt(site, tick)` is
+      pure, core knows only the rung number, packs name ages and may stop short. A building catalog (data: age it
+      unlocks, footprint, staff, produces/consumes, key-for-age flag). Each build step picks the next building by
+      weighted roll over catalog entries of the current and earlier ages: base weight, steep penalty per one already
+      standing, overridden by need (farms with food short of population, homes with crowding, workshops with
+      unstaffed demand). An age advances once its key buildings stand, so settlements that never roll one stall:
+      uneven pace for free. One pure fold with population (extends `SiteLife`; housing and population depend on
+      each other). Buildings keep the type of the age they were built in, so towns are layered. Later, trade pulls
+      neighbors up (see economic pull).
+- [ ] **Units per building:** dense multi-unit buildings downtown early, larger single homes further out as ages
+      pass. A building holds several households; capacity and vacancy are per unit; a person gets a unit number
+      beside their dwelling (paths and identity unchanged). Needs housing capacity first.
 - [ ] **Founding dates and growth:** every settlement gets a `founded` tick (negative = already existed, so old towns
       are more built-out at tick 0; positive = appears later) and every building a `builtTick` from the town's plan
       order and a growth curve. People only live in buildings that exist, so households found new homes and
       population pressure becomes construction. New settlements appear on planet maps with a log line.
       Decisions open: maturity as a hidden roll or a visible record field; whether abandoned buildings become ruins.
+- [ ] **Money, ownership and eviction:** `wealth` is a random record field with no effect today. Households earn at
+      their workplace, pay for food and upkeep, and owe rent, a mortgage or property tax (form per age and pack). Every
+      building has an owner (a household, a landlord with several buildings, or the settlement); tenants pay owners,
+      owners pay the town. Arrears long enough mean eviction and an unhoused household (second route to homelessness
+      next to ruins). A per-person disposition (greed, generosity: the trait list already has some) changes how
+      landlords price and evict and how neighbors share. Inspector: owner and rent in a building's record, arrears and
+      reason for eviction in a person's. Needs daily routines, housing capacity and the age ladder first.
+- [ ] **New settlements and migration:** a planet's sites are all generated up front (stable paths) with a `foundedTick`;
+      unfounded candidates exist on the map but are empty until a full settlement (crowded, food short, the age's
+      pressure) sends settlers to the best free one nearby, so the founding tick comes out of the fold. Emptied
+      districts become ruins. Settlements then depend on their neighbors, so the fold becomes one per planet
+      (pure in seed, body, week; a handful of sites, so cheap) with moves between settlements recorded on the person.
+      Between planets and systems is a much later, separate mechanism (ships, trade).
+      Ruins exist at tick 0 too: a site with a negative `foundedTick` and a negative `abandonedTick` is already
+      empty (buildings of the age it was built in, poor condition, resettled later through the founding trigger).
+      Inside living towns, homes left vacant for years decay vacant -> derelict -> ruin.
 - [ ] Live per-entity simulation beyond districts: inflate a settlement's population number into consistent people,
       collapse back to summaries when not watched
 - [ ] Zoom deeper than the district: individual building interiors, trees, animals, people
@@ -53,6 +97,25 @@ Status: `[ ]` idea, `[~]` in progress, `[x]` done.
       a change to generation): the inspector's tools limit how much detail is visible. Generator still
       produces everything; a tier decides max zoom depth, which layers show, and how precise record
       fields are (e.g. "Population ~2,000" early on). Tier stored with the deltas.
+- [ ] **Observer game (fog of war, drones, scouts):** the sandbox is a semi-realistic world; the game is the observer
+      on a ship at the middle of the universe who starts seeing a planet or two and upgrades equipment to see more.
+      Design constraints: (1) the sim never knows it is watched; the only stored state is a map path -> knowledge
+      level (unseen, detected, surveyed, detailed; per field if needed), next to `inspected` in the deltas.
+      (2) A report is the world as of the tick the probe looked: `genRecord(path, tick)` already answers that for any
+      past tick (looking late equals watching), so stale data, light lag and relays are the same call with different
+      ticks. (3) Actions cost ticks: survey, launch a drone, wait for its return (a job with a duration and a return
+      tick on the same clock); later drones relay data back instead of returning. (4) The Universe view shows only
+      what is known; upgrades are range, resolution (fields and detail per record) and relay. (5) Scout ships fill in
+      the map slowly on their own. Guard: observation filters what you see and never changes what generates.
+      Fog applies on every map, not only the Universe: planet maps and town districts get a revealed-cells mask (bits
+      per body or site, keyed by path, stored with the knowledge levels). A pass reveals a footprint whose radius is
+      the resolution upgrade; in a town, roads and plaza show first, then footprints, then building kinds, then
+      residents (a building seen only from above is a grey block). The mask only filters drawing and lists.
+      Progression by detail tier: land only (a lone scout wanders and jots an overview) -> places (settlements,
+      anomalies, roads) -> structures (footprints, kinds) -> people (records, households). A closer look at a place is
+      a directed pass. Cost is area x detail / speed, so upgrades divide the time and endgame is the same job
+      finishing in one tick: click a planet, then a person. The wandering scout is a pure function of (seed, unit,
+      tick), so only player orders add state (an order log, position derived from it) and waiting is free.
 - [ ] Planted-vs-found loop: scans produce findings, a report scores them
       against ground truth (missed / extra / echoes), reusing the Status / Results / Record tabs
 - [ ] Scan cost (time or resources) tied to resolution and coverage
@@ -148,9 +211,19 @@ Status: `[ ]` idea, `[~]` in progress, `[x]` done.
       industry + connectivity - congestion. All observable in the inspector (a mining town booms when its mine grows).
       Player verbs (found a settlement, fund an industry, build a road, ...) are deliberately undecided: build the world
       first, watch it live, then choose. Open question: inspector (investigate, scan, score) vs ruler (nudge, build).
-- [ ] **Coherent starting households:** at tick 0 every resident is rolled independently (age 1-82, sex a coin flip), so a
-      house holds unrelated people with no recorded lineage. Build starting households like arriving ones: a
-      composition for the headcount (single, couple, family, blended family, single parent, grandparent plus family),
-      consistent ages (parents 18+ years older than children, twins share a birth year), `mother`/`father` recorded for
-      children whose parent lives there. Records and the life model must read the same household. Scope: within one
-      dwelling only; no generated ancestors or siblings outside it (a parent who is not there stays unknown).
+- [ ] **Daily routines (work and school):** works and the hall are empty at tick 0 and shops only hold a keeper's
+      household, so nobody goes anywhere. Give each person an assigned place (working-age: a works, shop or the hall;
+      children: school, which needs a building kind or the hall; elders and the unemployed: home) and derive where
+      they are from the tick of day and day of the week (`whereAt(person, tick)`: pure, nothing stored, so looking
+      late still equals watching). Visible as dots moving between buildings on the district map and as "at: X" in the
+      person's record. Needs: a `workplace` link on Person (stable per person, changes on job moves), staffing
+      numbers per building from its size and kind, local solar time (already there) so night shifts follow the day.
+      Rosters fall out of the same assignment: a building's staff, or a school's students and teachers, are the people
+      assigned there (derived, not stored), shown in its record next to its residents; a person's record gets
+      "works at" / "attends" beside "lives in". Understaffing is then measurable.
+      Ties into terrain resources and industry (what a works makes decides its staff).
+- [~] **Starting households:** done: tick-0 homes hold couples with children, single parents, older parents with grown
+      children, step-parent families, three generations and housemates; parents are recorded only inside the dwelling (no ancestors before
+      tick 0), every parent was an adult at each birth, and the residents list shows couples with children indented
+      (partner marked +, family name omitted when it is the household's). Open: siblings who have left home, twins
+      sharing a birth year.

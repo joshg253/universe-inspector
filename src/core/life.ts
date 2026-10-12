@@ -51,7 +51,8 @@ export interface Person {
   father: number | null;
   /** Dwelling index they live in now. */
   residence: number;
-  /** Set once they have left the family home. Adults who arrive from outside start with it set; their children do not. */
+  /** Set once they have left the family home. Adults with no parent on record (original residents, arrivals) start with
+   *  it set; so do not their children, nor an original's children at home. */
   left: boolean;
   /** Moves after arriving, in order. */
   moves: { tick: number; to: number }[];
@@ -141,7 +142,8 @@ function seasonOf(base: number, week: number): { deaths: number; births: number 
 
 export interface SiteLifeSeed {
   path: string;
-  dwellings: { path: string; kind: string; ages: number[] }[];
+  /** `residents` is how many people live there at tick 0; who they are and how they are related comes from the model. */
+  dwellings: { path: string; kind: string; residents: number }[];
 }
 
 export class SiteLife {
@@ -160,23 +162,115 @@ export class SiteLife {
     this.base = hash32(`${seed}|${data.path}|life`);
     this.kinds = data.dwellings.map((d) => d.kind);
     this.byOrigin = data.dwellings.map(() => []);
-    data.dwellings.forEach((d, di) => {
-      d.ages.forEach((age) => {
-        const id = this.people.length;
-        // Spread birthdays through the year so everyone does not age on the same tick.
-        const birthTick = -(age * TICKS_PER_YEAR + Math.floor(roll(this.base, 0, id, 4) * TICKS_PER_YEAR));
-        this.add({
-          origin: di,
-          sex: roll(this.base, 0, id, 3) < 0.5 ? 'f' : 'm',
-          birthTick,
-          since: birthTick,
-          mother: null,
-          father: null,
-          left: false,
-        });
-      });
-    });
+    data.dwellings.forEach((d, di) => this.populate(di, d.kind, d.residents));
     this.initial = this.people.length;
+  }
+
+  /**
+   * The people living in one dwelling at tick 0. Homes hold households (a couple with children, a single parent, an
+   * older parent with grown children, three generations, a step-parent family, or housemates; a shop holds its keeper's
+   * household); works and the hall have no one. Parents
+   * are only ever people inside the same dwelling, so there are no ancestors before tick 0, and every parent was an
+   * adult (and a mother under 50) when each child was born.
+   */
+  private populate(di: number, kind: string, n: number): void {
+    if (n <= 0) return;
+    const base = this.base;
+    const r = (k: number) => roll(base, 0x10000 + di, k, 40);
+    const between = (lo: number, hi: number, k: number) => lo + Math.floor(r(k) * (Math.max(lo, hi) - lo + 1));
+    const bday = (age: number, id: number) => -(age * TICKS_PER_YEAR + Math.floor(roll(base, 0, id, 4) * TICKS_PER_YEAR));
+    const mk = (age: number, sex: Sex | null, mother: number | null = null, father: number | null = null): Person => {
+      const id = this.people.length;
+      const birthTick = bday(age, id);
+      return this.add({
+        origin: di,
+        sex: sex ?? (roll(base, 0, id, 3) < 0.5 ? 'f' : 'm'),
+        birthTick,
+        since: birthTick,
+        mother,
+        father,
+        left: mother === null && father === null, // grown-up original residents have a home of their own
+      });
+    };
+    const lives = kind === 'home' || kind === 'shop'; // a shop's keeper lives above it: a household like any other
+    if (!lives || n === 1) {
+      for (let i = 0; i < n; i++) mk(lives ? between(19, 85, 1) : between(18, 64, 2 + i), null);
+      return;
+    }
+    // Children's ages: distinct values at least two years apart (so siblings are at least a year apart whatever their
+    // birthdays), taken from lo..hi, oldest first. Twins are a live-sim thing; starting children are singletons.
+    const spaced = (count: number, lo: number, hi: number): number[] => {
+      const slots = Math.max(1, Math.floor((hi - lo) / 2) + 1);
+      const pool = Array.from({ length: slots }, (_, i) => i);
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(r(40 + i) * (i + 1));
+        [pool[i], pool[j]] = [pool[j]!, pool[i]!];
+      }
+      return Array.from({ length: count }, (_, i) => lo + 2 * pool[i % slots]!).sort((a, b) => b - a);
+    };
+    const shape = r(0);
+    if (shape >= 0.9) {
+      for (let i = 0; i < n; i++) mk(between(18, 60, 2 + i), null); // housemates
+      return;
+    }
+    if (shape >= 0.75 && shape < 0.8 && n >= 4) {
+      // Three generations: a grandmother or grandfather, their grown daughter, and her children (father not at home).
+      const gAge = between(62, 88, 20);
+      const g = mk(gAge, r(21) < 0.75 ? 'f' : 'm');
+      const midAge = between(Math.max(ADULT + 3 + 2 * (n - 2), gAge - 48), Math.min(gAge - ADULT - 1, 55), 22);
+      const mid = mk(midAge, 'f', g.sex === 'f' ? g.id : null, g.sex === 'm' ? g.id : null);
+      mid.left = false;
+      const lo = Math.max(0, midAge - 48);
+      const hi = Math.max(lo, Math.min(midAge - ADULT - 1, 40));
+      let youngest = -Infinity;
+      for (const age of spaced(n - 2, lo, hi)) youngest = Math.max(youngest, mk(age, null, mid.id, null).birthTick);
+      mid.restUntil = youngest + 52 * TICKS_PER_WEEK;
+      return;
+    }
+    // Parents' ages, then the children's ages inside the window where both were adults at the birth and the mother
+    // under 50 (a year's margin each side, since ages are whole years and birthdays are spread through the year).
+    const couple = shape < 0.7 && n >= 2;
+    const kids = n - (couple ? 2 : 1);
+    const kidWindow = (momAge: number, dadAge: number | null): [number, number] => [
+      Math.max(0, momAge - 48),
+      Math.min(momAge - ADULT - 1, dadAge === null ? Infinity : dadAge - ADULT - 1, 40),
+    ];
+    let momAge = between(20, 60, 3);
+    let lo = 0;
+    let hi = 0;
+    if (kids > 0) {
+      // Older mothers for more children, so they fit (two years apart at the least).
+      momAge = Math.max(momAge, ADULT + 3 + 2 * kids);
+    }
+    const dadAge = couple ? Math.max(ADULT + 1, momAge + between(0, 14, 4) - 4) : null;
+    [lo, hi] = kidWindow(momAge, dadAge);
+    if (hi < lo) lo = hi = Math.max(0, hi);
+    // One parent on their own: an older man or woman, or (less often) a father. A grown child can be well along.
+    const lone = !couple;
+    let parent: Person;
+    let other: Person | null = null;
+    if (lone) {
+      const soloAge = kids > 0 ? between(momAge, 85, 5) : between(19, 85, 5);
+      const sex: Sex = r(6) < 0.75 ? 'f' : 'm';
+      parent = mk(soloAge, sex);
+      [lo, hi] = sex === 'f' ? kidWindow(soloAge, null) : [Math.max(0, soloAge - 69), Math.min(soloAge - ADULT - 1, 45)];
+      if (hi < lo) lo = hi = Math.max(0, hi);
+      momAge = soloAge;
+    } else {
+      parent = mk(momAge, 'f');
+      other = mk(dadAge!, 'm');
+    }
+    // A step-parent: the partner is not the children's father.
+    const step = couple && kids > 0 && r(7) < 0.2;
+    let youngest = -Infinity;
+    for (const age of spaced(kids, lo, hi)) {
+      const mother: number | null = parent.sex === 'f' ? parent.id : null;
+      let father: number | null = parent.sex === 'm' ? parent.id : other ? other.id : null;
+      if (step) father = null;
+      const kid = mk(age, null, mother, father);
+      youngest = Math.max(youngest, kid.birthTick);
+    }
+    if (kids > 0 && parent.sex === 'f') parent.restUntil = youngest + 52 * TICKS_PER_WEEK;
   }
 
   private add(p: Pick<Person, 'origin' | 'sex' | 'birthTick' | 'since' | 'mother' | 'father' | 'left'>): Person {
@@ -245,7 +339,7 @@ export class SiteLife {
       const here = home[p.residence]!;
       if (dependents(p, here)) continue;
       const withParent = here.some((q) => q.id === p.mother || q.id === p.father);
-      const crowded = p.mother === null && here.length >= 3; // original residents: no parents on record
+      const crowded = p.mother === null && here.length >= 3; // no mother on record (a lone father's children): leave a crowded home
       if (!withParent && !crowded) continue;
       if (roll(base, week, p.id, 10) >= LEAVE_PER_WEEK) continue;
       // A couple founds a household: they take a vacant home together.
@@ -402,7 +496,8 @@ export class SiteLife {
     let births = 0;
     let deaths = 0;
     for (const p of this.people) {
-      if (p.mother !== null && p.birthTick === p.since) births++; // born here: not the children of an arriving household
+      // Born here: not the starting children (born before tick 0) nor the children of an arriving household.
+      if (p.mother !== null && p.birthTick === p.since && p.since > 0) births++;
       if (p.deathTick !== null) deaths++;
     }
     return { births, deaths };
