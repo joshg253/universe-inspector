@@ -1,6 +1,7 @@
 import { lineChart } from './chart';
 import { depth, parentPath, parsePath } from '../core/path';
-import { SPEED_HINTS, SPEED_LABELS, type FromWorker, type ToWorker } from '../core/protocol';
+import { DAY, YEAR } from '../core/time';
+import { BASE_TICKS, LADDER, SPEED_GLYPHS, STEP_GLYPH, spanLabel, speedTps, type FromWorker, type ToWorker } from '../core/protocol';
 import type { Dyn, FeatureId, RecordChild, RecordData, SimEvent, View } from '../core/types';
 import { DEFAULT_PACK_ID, PACKS, packOf } from '../packs';
 import { fmt } from '../packs/define';
@@ -150,6 +151,11 @@ export function startApp(root: HTMLElement): void {
     dyn: null as Dyn | null,
     events: [] as SimEvent[],
     tab: 'status' as Tab,
+    /** Which stat's graph the Results tab shows (a field label); the first graph of a record when unset or absent. */
+    chartStat: null as string | null,
+    /** How many ticks the Step button (and the . key) advance, per zoom level (universe, system, planet, settlement);
+     *  an hour means nothing across a universe. Transient UI state. */
+    stepTicks: [...BASE_TICKS] as number[],
     error: null as string | null,
   };
   let pack = packOf(state.packId);
@@ -230,7 +236,7 @@ export function startApp(root: HTMLElement): void {
     return v;
   };
   const kTick = kv('Tick');
-  const kClock = kv('Clock');
+  const kClock = kv('Standard clock');
   const kLocal = kv('Local time');
   const kRate = kv('Rate');
   const kInView = kv('In view');
@@ -251,8 +257,22 @@ export function startApp(root: HTMLElement): void {
   const btnOut = h('button', { onclick: () => zoomOut() }, 'Zoom out');
   const btnIn = h('button', { onclick: () => zoomIn() }, 'Zoom in');
   const btnInspect = h('button', { onclick: () => inspect() }, 'Inspect');
-  const btnStep = h('button', { onclick: () => send({ type: 'step' }) }, 'Step');
-  const speedBtns = SPEED_LABELS.map((label, i) => h('button', { class: 'speed', title: SPEED_HINTS[i], onclick: () => setSpeed(i) }, label));
+  // The step sizes are the ladder from an hour to 1,000 years (the same spans the speeds use).
+  const STEP_SIZES: [string, number][] = LADDER.slice(0, 8).map((span) => [spanLabel(span), span]);
+  const stepLevel = () => Math.min(3, depth(state.viewPath));
+  const stepNow = () => send({ type: 'step', n: state.stepTicks[stepLevel()] });
+  const btnStep = h('button', { title: 'Advance one step (.)', onclick: stepNow }, `${STEP_GLYPH} Step`);
+  const stepSize = h(
+    'select',
+    {
+      title: 'How far the Step button advances',
+      onchange: (e: Event) => (state.stepTicks[stepLevel()] = Number((e.target as HTMLSelectElement).value)),
+    },
+    ...STEP_SIZES.map(([label, n]) => h('option', { value: String(n) }, label)),
+  );
+  const speedBtns = SPEED_GLYPHS.map((glyph, i) => h('button', { class: 'speed', onclick: () => setSpeed(i) }, glyph));
+  const speedLevel = () => Math.min(3, depth(state.viewPath));
+  const speedText = (i: number) => (i === 0 ? 'Paused' : `${spanLabel(speedTps(speedLevel(), i))} per second`);
 
   panels.status.append(
     h(
@@ -277,7 +297,8 @@ export function startApp(root: HTMLElement): void {
     'div',
     { class: 'controls' },
     h('div', { class: 'btnrow' }, btnOut, btnIn, btnInspect),
-    h('div', { class: 'btnrow' }, btnStep, ...speedBtns),
+    h('div', { class: 'btnrow' }, btnStep, stepSize),
+    h('div', { class: 'btnrow' }, ...speedBtns),
   );
 
   // --- Results / Record / Settings panels
@@ -505,7 +526,7 @@ export function startApp(root: HTMLElement): void {
 
   /** Chart time axis: days at first, then years. 1 tick = 1 hour. */
   const fmtTime = (tick: number): string =>
-    tick < 8760 * 2 ? `Day ${Math.floor(tick / 24) + 1}` : `Year ${(tick / 8760).toFixed(1)}`;
+    tick < YEAR * 2 ? `Day ${Math.floor(tick / DAY) + 1}` : `Year ${(tick / YEAR).toFixed(1)}`;
 
   const eventText = (e: SimEvent) => fmt(t(`event.${e.kind}`), { 0: nm('site', e.nameKey), n: e.n });
 
@@ -555,12 +576,12 @@ export function startApp(root: HTMLElement): void {
 
   function renderStatusLive(): void {
     const running = state.speed > 0;
-    stateLine.textContent = running ? `Running at ${SPEED_LABELS[state.speed]} (${SPEED_HINTS[state.speed]})` : 'Paused';
+    stateLine.textContent = running ? `Running at ${SPEED_GLYPHS[state.speed]} (${speedText(state.speed)})` : 'Paused';
     stateLine.classList.toggle('running', running);
     kTick.textContent = state.tick.toLocaleString();
-    kClock.textContent = `Day ${Math.floor(state.tick / 24) + 1}, ${String(state.tick % 24).padStart(2, '0')}:00`;
+    kClock.textContent = `Day ${Math.floor(state.tick / DAY) + 1}, ${String(state.tick % DAY).padStart(2, '0')}:00`;
     kLocal.textContent = state.dyn?.level === 'site' ? `${String(state.dyn.hour).padStart(2, '0')}:00 (daylight ${Math.round(state.dyn.daylight * 100)}%)` : '—';
-    kRate.textContent = running ? `${state.tps.toFixed(0)} ticks/s` : '0 ticks/s';
+    kRate.textContent = running ? `${Math.round(state.tps).toLocaleString('en-US')} ticks/s` : '0 ticks/s';
     taskTray.textContent = `Tick ${state.tick.toLocaleString()}`;
   }
 
@@ -710,14 +731,32 @@ export function startApp(root: HTMLElement): void {
       h('div', { class: 'bigtitle' }, nm(r.nameKind, r.nameKey, r.tag)),
       h('div', { class: 'hint' }, `${kindLabel(r)} · ${r.path}${r.inspected ? ` · ${t('state.inspected')}` : ''}`),
     );
+    // A stat that has a graph is a link: click it to show that graph below. The first graph is the default.
+    const charts = r.charts ?? [];
+    const active = charts.find((c) => c.label === state.chartStat) ?? charts[0];
     const body = h('tbody');
     for (const f of r.fields) {
       if (f.feature && !state.features[f.feature]) continue;
-      body.append(h('tr', null, h('td', { class: 'k' }, t(`field.${f.label}`)), h('td', { class: 'v' }, fieldValue(f.value, f.vocab))));
+      const graphed = charts.some((c) => c.label === f.label);
+      const label = t(`field.${f.label}`);
+      body.append(
+        h(
+          'tr',
+          graphed
+            ? {
+                class: `statlink${active?.label === f.label ? ' on' : ''}`,
+                title: 'Show graph',
+                onclick: () => ((state.chartStat = f.label), renderResults()),
+              }
+            : null,
+          h('td', { class: 'k' }, label),
+          h('td', { class: 'v' }, fieldValue(f.value, f.vocab)),
+        ),
+      );
     }
     resultsBody.append(h('table', { class: 'kv wide' }, body));
-    for (const c of r.charts ?? []) {
-      resultsBody.append(h('div', { class: 'section-title' }, t(`field.${c.label}`)), lineChart(t(`field.${c.label}`), c.points, fmtTime));
+    if (active) {
+      resultsBody.append(h('div', { class: 'section-title' }, t(`field.${active.label}`)), lineChart(t(`field.${active.label}`), active.points, fmtTime));
     }
     // In a household's own list the family name is the household's, so it is left off unless it differs.
     const listName = (c: RecordChild, parent: RecordData): string => {
@@ -817,6 +856,8 @@ export function startApp(root: HTMLElement): void {
     btnIn.disabled = !state.selPath;
     btnInspect.disabled = !state.selPath;
     btnInspect.textContent = state.record?.inspected ? 'Un-inspect' : 'Inspect';
+    stepSize.value = String(state.stepTicks[stepLevel()]);
+    speedBtns.forEach((b, i) => (b.title = i === 0 ? 'Pause' : speedText(i)));
   }
 
   /** Everything that depends on names, vocabulary, or feature flags. */
@@ -985,7 +1026,7 @@ export function startApp(root: HTMLElement): void {
       e.preventDefault();
       if (target.tagName === 'BUTTON') target.blur();
       setSpeed(state.speed === 0 ? 1 : 0);
-    } else if (e.key === '.') send({ type: 'step' });
+    } else if (e.key === '.') stepNow();
     else if (e.key === 'Backspace') {
       e.preventDefault();
       zoomOut();

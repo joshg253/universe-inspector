@@ -59,18 +59,37 @@ export class Sim {
   step(): SimEvent[] {
     this.tick++;
     const events = this.eventsAt(this.tick);
-    if (this.tick % TICKS_PER_WEEK === 0 && this.watchSite) {
-      const life = this.lives.get(this.watchSite);
-      if (life) {
-        const site = this.watchSite;
-        const [s, b, t] = parsePath(site);
-        const nameKey = bodySites(this.seed, s!.i, b!.i)[t!.i]?.nameKey ?? 0;
-        life.advanceTo(this.tick / TICKS_PER_WEEK, (e) =>
-          events.push({ tick: e.tick, kind: e.kind, path: site, nameKey, n: e.n ?? 1 }),
-        );
-        this.lifeVersion++;
-      }
+    if (this.tick % TICKS_PER_WEEK === 0) this.foldWatched(events);
+    return events;
+  }
+
+  /** Bring the watched district's people up to the current tick, reporting what happened. */
+  private foldWatched(events: SimEvent[]): void {
+    const site = this.watchSite;
+    const life = site ? this.lives.get(site) : undefined;
+    if (!site || !life) return;
+    const [s, b, t] = parsePath(site);
+    const nameKey = bodySites(this.seed, s!.i, b!.i)[t!.i]?.nameKey ?? 0;
+    life.advanceTo(Math.floor(this.tick / TICKS_PER_WEEK), (e) =>
+      events.push({ tick: e.tick, kind: e.kind, path: site, nameKey, n: e.n ?? 1 }),
+    );
+    this.lifeVersion++;
+  }
+
+  /**
+   * Advance n ticks. A long jump (a year or a century in one press) moves the clock straight there and folds the
+   * watched district's weeks, instead of making a background event for every skipped hour; the last stretch is
+   * stepped normally so the log is not empty. The people end up exactly where stepping tick by tick would put them.
+   */
+  advance(n: number): SimEvent[] {
+    const events: SimEvent[] = [];
+    const tail = Math.min(n, n > 2000 ? 200 : n);
+    const jump = n - tail;
+    if (jump > 0) {
+      this.tick += jump;
+      this.foldWatched(events);
     }
+    for (let i = 0; i < tail; i++) events.push(...this.step());
     return events;
   }
 

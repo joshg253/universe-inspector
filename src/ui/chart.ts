@@ -1,4 +1,5 @@
 // A small line chart: one series, thin line, recessive grid, end value labeled, hover crosshair and tooltip.
+import { DAY, MONTH, WEEK, YEAR } from '../core/time';
 import { h } from './dom';
 
 export interface ChartPoint {
@@ -29,6 +30,21 @@ function yRange(points: ChartPoint[]): [number, number] {
   return [Math.max(0, Math.floor(lo - pad)), Math.ceil(hi + pad)];
 }
 
+/** Spacings the time marks may use (in ticks = hours): days, a week, a month, a season, then years by 1-2-5. */
+const STEPS = [DAY, 2 * DAY, WEEK, MONTH, 91 * DAY, YEAR];
+for (let m = 1; m <= 1000; m *= 10) for (const k of [2, 5, 10]) if (k * m * YEAR > YEAR) STEPS.push(k * m * YEAR);
+
+/** Round-number time marks inside (t0, t1): the smallest spacing that gives at most five of them. */
+function timeMarks(t0: number, t1: number): { t: number; label: string }[] {
+  let step = STEPS.find((s) => (t1 - t0) / s <= 5) ?? STEPS[STEPS.length - 1]!;
+  while ((t1 - t0) / step > 5) step *= 2; // past the last tabled spacing: keep widening so there are never more than five
+  const out: { t: number; label: string }[] = [];
+  for (let t = Math.ceil((t0 + 1) / step) * step; t < t1; t += step) {
+    out.push({ t, label: step >= YEAR ? `Y${Math.round(t / YEAR)}` : `D${Math.floor(t / DAY) + 1}` });
+  }
+  return out;
+}
+
 export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: number) => string): HTMLElement {
   const box = h('div', { class: 'chart' });
   if (points.length < 2) {
@@ -56,6 +72,18 @@ export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: numb
   const xr = svg('text', { x: W - M.r, y: H - 6, class: 'chart-text', 'text-anchor': 'end' });
   xr.textContent = fmtTime(t1);
   root.append(xl, xr);
+
+  // Time marks: faint dashed lines up through the plot with a short label under each (skipped where they would
+  // run into the end labels).
+  for (const m of timeMarks(t0, t1)) {
+    const x = X(m.t);
+    root.append(svg('line', { x1: x, x2: x, y1: M.t, y2: H - M.b, class: 'chart-tick' }));
+    if (x > M.l + 36 && x < W - M.r - 52) {
+      const lab = svg('text', { x, y: H - 6, class: 'chart-text', 'text-anchor': 'middle' });
+      lab.textContent = m.label;
+      root.append(lab);
+    }
+  }
 
   // Step line: a headcount holds its value until the next birth or death.
   let d = `M${X(points[0]!.t)},${Y(points[0]!.v)}`;

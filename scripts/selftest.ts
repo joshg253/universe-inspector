@@ -8,6 +8,7 @@ import { layoutTown } from '../src/core/town';
 import { rngFor } from '../src/core/rng';
 import { Sim, dynFor } from '../src/core/sim';
 import { packOf, PACKS } from '../src/packs';
+import { spanLabel, speedTps } from '../src/core/protocol';
 
 const json = (v: unknown) => JSON.stringify(v, (_k, x) => (x instanceof Uint8Array ? Array.from(x) : x));
 const d = new DeltaStore();
@@ -225,6 +226,35 @@ assert.equal(viewLevel('s1/b2'), 'body');
   const rec0 = genRecord(seed, `${data.dwellings[d0]!.path}/p0`, new DeltaStore());
   assert.equal(rec0.fields.find((f) => f.label === 'age')!.value, ageAt(p0, 0));
 
+  // Each zoom level has its own five speeds on one ladder: a year per second at the bottom of the universe's, an hour in a district's.
+  assert.deepEqual([1, 2, 3, 4, 5].map((i) => spanLabel(speedTps(0, i))), ['1 year', '10 years', '100 years', '1,000 years', '10,000 years']);
+  assert.deepEqual([1, 2, 3, 4, 5].map((i) => spanLabel(speedTps(1, i))), ['1 week', '1 month', '1 year', '10 years', '100 years']);
+  assert.deepEqual([1, 2, 3, 4, 5].map((i) => spanLabel(speedTps(2, i))), ['1 day', '1 week', '1 month', '1 year', '10 years']);
+  assert.deepEqual([1, 2, 3, 4, 5].map((i) => spanLabel(speedTps(3, i))), ['1 hour', '1 day', '1 week', '1 month', '1 year']);
+  assert.equal(speedTps(1, 0), 0);
+  assert.deepEqual([spanLabel(1), spanLabel(24), spanLabel(168), spanLabel(720), spanLabel(8760), spanLabel(8760 * 24)], ['1 hour', '1 day', '1 week', '1 month', '1 year', '24 years']);
+
+  // A long jump (a century in one press) leaves the people exactly where stepping tick by tick does.
+  {
+    const a = new Sim(seed);
+    a.setFocusFromPath(site.path);
+    for (let i = 0; i < 3 * TICKS_PER_YEAR + 77; i++) a.step();
+    const b = new Sim(seed);
+    b.setFocusFromPath(site.path);
+    b.advance(3 * TICKS_PER_YEAR + 77);
+    assert.equal(b.tick, a.tick);
+    assert.equal(json(b.lifeFor(site.path)!.people), json(a.lifeFor(site.path)!.people), 'jump equals stepping');
+    assert.equal(b.lifeFor(site.path)!.week, a.lifeFor(site.path)!.week, 'the same week is folded');
+    // Chained jumps (and small ones, which are stepped) land in the same place as one long one.
+    const c = new Sim(seed);
+    c.setFocusFromPath(site.path);
+    c.advance(5000);
+    c.advance(3);
+    c.advance(3 * TICKS_PER_YEAR + 77 - 5003);
+    assert.equal(c.tick, a.tick);
+    assert.equal(json(c.lifeFor(site.path)!.people), json(a.lifeFor(site.path)!.people), 'chained jumps equal stepping');
+  }
+
   // The Sim reports the same world whether the district was watched from the start or only looked at later.
   const watched = new Sim(seed);
   watched.setFocusFromPath(site.path);
@@ -238,6 +268,18 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.equal(series[0]!.v, stepped.initial);
   assert.equal(series[series.length - 1]!.v, stepped.living);
   assert.equal(livingSeries(new SiteLife(seed, data), null).length, 0);
+  // A finished stretch of the line does not change as time advances (no blips flickering in and out while watching).
+  {
+    const l = new SiteLife(seed, data);
+    l.advanceTo(52 * 30);
+    const before = livingSeries(l, null);
+    l.advanceTo(52 * 30 + 1);
+    const after = livingSeries(l, null);
+    const settled = before.length - 2; // everything but the closing grid point and the exact end
+    assert.deepEqual(after.slice(0, settled), before.slice(0, settled), 'earlier points stay put as a week passes');
+    assert.ok(after.length <= 97, 'at most about 96 points');
+  }
+
   // Records agree with the model: a dwelling lists its current residents, a moved person still resolves by path.
   const tick = WEEKS * TICKS_PER_WEEK;
   const live = { tick, life: stepped };
