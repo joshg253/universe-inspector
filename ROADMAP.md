@@ -69,15 +69,16 @@ Status: `[ ]` idea, `[~]` in progress, `[x]` done.
 ## Platform and infra
 
 - [~] Hosting: repo is on GitLab (`joshg253/universe-inspector`), commits are SSH-signed
-- [~] **CI in GitLab:** `.gitlab-ci.yml` added (install, `npm test`, `npm run build`, advisory `npm audit`; Node 24). Not
-      yet run on GitLab. Later: a Pages job for the static build (`vite.config.ts` already uses a relative base)
-- [ ] **Automated review:** Sourcery or similar on merge requests (keep MRs small and single-purpose; reviewers skip
-      big diffs and have shared budgets). Check what each supports on GitLab before choosing.
-- [ ] GitLab CLI (`glab`) + a project access token (Developer role, `main` protected) so merge requests can be
-      opened from the terminal; merging stays with the owner
+- [x] **CI in GitLab:** `.gitlab-ci.yml` runs install, `npm test`, `npm run build` and an advisory `npm audit` (Node 24)
+      on every branch push and merge request. Open: a Pages job for the static build (`vite.config.ts` has a relative base)
+- [~] **Review:** done: a fresh-context reviewer agent reviews every branch before its MR (see CLAUDE.md). Open: an
+      external bot on merge requests (PR-Agent or a CI job with an own API key; Sourcery's free tier is public-repo only).
+      Keep MRs small and single-purpose; reviewers skip big diffs. Treat the diff as untrusted input to the reviewer.
+- [x] Issues, merge requests, pipeline status and review comments from the terminal: `scripts/gl.mjs` with a project
+      access token (Developer role, `main` protected); there is no merge command, merging stays with the owner
 - [ ] Save/load UI: seed + `DeltaStore.toJSON()` is the whole save; export/import file, IndexedDB
-- [~] Wiki: pages drafted (Home, Using the inspector, Skins, Simulation, Architecture, Development) with screenshots;
-      pushed once the project wiki is initialised. README is the short version.
+- [x] Wiki: Home, Using the inspector, Skins, Simulation, Architecture, Development, with screenshots. The README
+      is the short version. Keep the Wiki in step with behavior changes.
 - [ ] License: undecided; none while the repo is private (decide before it goes public)
 - [ ] Shareable seeds / URLs (state parameters exist; a proper share link and save format do not)
 - [ ] Self-host the static build on the VPS

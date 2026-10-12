@@ -1,4 +1,4 @@
-# Checks on every push and merge request: the core invariants, then the typecheck + static build.
+# Checks on every branch push and merge request (not tags): the core invariants, then the typecheck + static build.
 # Keep the image's major version in step with .nvmrc.
 workflow:
   rules:
