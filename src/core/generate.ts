@@ -1,5 +1,6 @@
 // Deterministic lazy generation: every object is a pure function of
 // (seed, path). Small caches keep repeated lookups cheap but never change results.
+import { YEAR } from './time';
 import { rngFor, makeNoise } from './rng';
 import { parsePath } from './path';
 import { layoutTown } from './town';
@@ -93,6 +94,8 @@ interface BodyMeta {
   phase: number;
   size: number;
   dayLength: number;
+  /** Sidereal rotation period in ticks; negative = retrograde. The solar day (`dayLength`) is derived from it and `period`. */
+  spin: number;
   siteTarget: number;
   anomalyCount: number;
 }
@@ -121,6 +124,24 @@ const SITE_TARGET: Record<BodyKind, [number, number]> = {
 
 const sysCache = new Map<string, SystemInfo>();
 
+/** Relative star mass by class; the orbit period follows Kepler's third law. */
+const STAR_MASS: Record<StarClass, number> = { dim: 0.6, mid: 1, bright: 1.7 };
+/** Orbit (map units) at which a planet around a mass-1 star takes one standard year. */
+const ORBIT_ONE_YEAR = 50;
+
+/** Orbital period in ticks: grows with orbit^1.5, shrinks with the square root of the star's mass. */
+export function orbitalPeriod(orbit: number, starMass: number): number {
+  return Math.max(1, Math.round((YEAR * Math.pow(orbit / ORBIT_ONE_YEAR, 1.5)) / Math.sqrt(starMass)));
+}
+
+/** Time from one sunrise to the next, in ticks. A positive spin turns the same way as the orbit; a negative (retrograde)
+ *  spin shortens the day. Spin equal to the period never sees a sunrise, so that returns the largest safe number
+ *  (callers nudge spins away from it; this only keeps the function total). */
+export function solarDay(spin: number, period: number): number {
+  const rate = 1 / spin - 1 / period;
+  return rate === 0 || !Number.isFinite(rate) ? Number.MAX_SAFE_INTEGER : Math.abs(1 / rate);
+}
+
 function systemInfo(seed: string, si: number): SystemInfo {
   return memo(sysCache, `${seed}|${si}`, 64, () => {
     const path = `s${si}`;
@@ -135,19 +156,28 @@ function systemInfo(seed: string, si: number): SystemInfo {
     for (let i = 0; i < n; i++) {
       const bp = `${path}/b${i}`;
       const br = rngFor(seed, bp, 'meta');
+      const sr = rngFor(seed, bp, 'spin'); // its own stream, so the rest of the world does not reshuffle
       const f = n > 1 ? i / (n - 1) : 0.5;
       const kind = br.weighted(f < 0.3 ? KIND_TABLES.inner : f < 0.6 ? KIND_TABLES.mid : KIND_TABLES.outer);
       const [lo, hi] = SITE_TARGET[kind];
+      const period = orbitalPeriod(orbit, STAR_MASS[cls]);
+      // Most worlds turn in 10 to 40 hours; some are slow (Venus-like, up to months); a few turn backwards.
+      let spin = sr.chance(0.85) ? sr.range(10, 40) : sr.range(120, 3000);
+      if (spin > period * 0.8 && spin < period * 1.25) spin = period * 0.6; // not locked to a sunless day
+      spin = Math.round(spin); // whole ticks, so the stored spin reproduces the day exactly
+      if (sr.chance(0.08)) spin = -spin;
       bodies.push({
         path: bp,
         index: i,
         nameKey: br.u32(),
         kind,
         orbit,
-        period: Math.round(300 * Math.pow(orbit / 20, 1.5)),
+        period,
         phase: br.range(0, TAU),
         size: kind === 'gaseous' ? br.range(3.5, 5.5) : br.range(1.4, 2.8),
-        dayLength: br.int(18, 40),
+        // The comma keeps the draw the old independent day length used, so every draw after it is unchanged.
+        dayLength: (br.int(18, 40), Math.max(1, Math.round(solarDay(spin, period)))),
+        spin,
         siteTarget: br.int(lo, hi),
         anomalyCount: kind === 'gaseous' ? br.int(0, 1) : br.int(0, 3),
       });

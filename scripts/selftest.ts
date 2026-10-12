@@ -1,7 +1,7 @@
 // Core invariants, run with `npm test`. No browser needed: core/ has no DOM.
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
-import { bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
+import { orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
 import { SiteLife, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, livingSeries, residenceAt } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
@@ -233,6 +233,25 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.deepEqual([1, 2, 3, 4, 5].map((i) => spanLabel(speedTps(3, i))), ['1 hour', '1 day', '1 week', '1 month', '1 year']);
   assert.equal(speedTps(1, 0), 0);
   assert.deepEqual([spanLabel(1), spanLabel(24), spanLabel(168), spanLabel(720), spanLabel(8760), spanLabel(8760 * 24)], ['1 hour', '1 day', '1 week', '1 month', '1 year', '24 years']);
+
+  // A planet's year and day come from orbit and spin, not from a standard 8,760 or 24.
+  assert.equal(orbitalPeriod(50, 1), TICKS_PER_YEAR, 'orbit 50 around a mass-1 star is one standard year');
+  assert.ok(orbitalPeriod(80, 1) > orbitalPeriod(50, 1), 'outer worlds take longer');
+  assert.ok(orbitalPeriod(50, 1.7) < orbitalPeriod(50, 0.6), 'a heavier star pulls the same orbit round faster');
+  assert.equal(Math.round(solarDay(24, 1e12)), 24, 'a far orbit leaves the day at the spin');
+  assert.ok(solarDay(5832, 5400) > 5832 * 5, 'spin close to the orbit makes a very long day');
+  assert.ok(solarDay(-5832, 5400) < 5400, 'retrograde spin shortens the day (a day shorter than the year)');
+  assert.equal(solarDay(5400, 5400), Number.MAX_SAFE_INTEGER, 'spin equal to the orbit is a day that never ends, not Infinity or NaN');
+  // Across seeds and every body: the day is finite, at least a tick, and at most five years of that body (the longest
+  // the spin nudge allows, just outside its window).
+  for (const sd of ['alpha', 'beta', 'gamma']) {
+    for (let si = 0; si < 12; si++) {
+      for (const b of genSystem(sd, si, d).bodies) {
+        const dl = genBody(sd, si, b.index, d).dayLength;
+        assert.ok(Number.isFinite(dl) && dl >= 1 && dl <= 5 * b.period + 1, `solar day ${dl} for period ${b.period}`);
+      }
+    }
+  }
 
   // A long jump (a century in one press) leaves the people exactly where stepping tick by tick does.
   {
