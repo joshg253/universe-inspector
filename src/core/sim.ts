@@ -66,7 +66,7 @@ export class Sim {
         const [s, b, t] = parsePath(site);
         const nameKey = bodySites(this.seed, s!.i, b!.i)[t!.i]?.nameKey ?? 0;
         life.advanceTo(this.tick / TICKS_PER_WEEK, (e) =>
-          events.push({ tick: e.tick, kind: e.kind, path: site, nameKey, n: 1 }),
+          events.push({ tick: e.tick, kind: e.kind, path: site, nameKey, n: e.n ?? 1 }),
         );
         this.lifeVersion++;
       }

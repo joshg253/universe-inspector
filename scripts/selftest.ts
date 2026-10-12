@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
 import { bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
-import { SiteLife, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, livingSeries } from '../src/core/life';
+import { SiteLife, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, livingSeries, residenceAt } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
 import { rngFor } from '../src/core/rng';
@@ -147,6 +147,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
     assert.ok(mom.mother !== dad.id && mom.father !== dad.id, "mother is not the father's child");
     assert.ok(!(mom.mother !== null && mom.mother === dad.mother), 'parents are not siblings');
     assert.ok(!(mom.father !== null && mom.father === dad.father), 'parents are not half-siblings');
+    assert.ok((p.birthTick - mom.birthTick) / TICKS_PER_YEAR >= 18, 'the mother was an adult at the birth');
+    assert.ok((p.birthTick - dad.birthTick) / TICKS_PER_YEAR >= 18, 'the father was an adult at the birth');
   }
 
   // Everyone lives somewhere real, and no building is over capacity once settled.
@@ -190,6 +192,55 @@ assert.equal(viewLevel('s1/b2'), 'body');
   const prec = genRecord(seed, `${originPath}/p${mover.local}`, d, live);
   assert.equal(prec.links?.find((l) => l.label === 'residence')?.items[0]?.path, dwellingPath);
   assert.equal(genRecord(seed, site.path, d, live).charts?.[0]?.points.length, series.length);
+
+  // Homes do not empty out for good: households arrive and couples found new ones, so vacancy stays bounded and the
+  // population neither dies out nor runs away over a century.
+  {
+    let homes = 0;
+    let vacant = 0;
+    let start = 0;
+    let end = 0;
+    let sampled = 0;
+    let arrivedKids = 0;
+    let arrivedKidsMoved = 0;
+    for (let si = 0; si < 2 && sampled < 10; si++) {
+      for (const sbi of settledBodyIndexes(seed, si)) {
+        for (const s of bodySites(seed, si, sbi)) {
+          if (sampled >= 10) break;
+          const dd = siteLifeSeed(seed, si, sbi, s.index);
+          const l = new SiteLife(seed, dd);
+          start += l.living;
+          l.advanceTo(52 * 100);
+          end += l.living;
+          const endTick = l.week * TICKS_PER_WEEK;
+          for (const person of l.people) {
+            assert.equal(person.residence, residenceAt(person, endTick), 'residence matches the move history');
+            assert.equal(l.person(person.origin, person.local), person, 'a person is found by their path');
+            if (person.mother !== null) {
+              const mom = l.people[person.mother]!;
+              const dad = l.people[person.father!]!;
+              assert.ok((person.birthTick - mom.birthTick) / TICKS_PER_YEAR >= 18, 'mother was an adult at the birth');
+              assert.ok((person.birthTick - dad.birthTick) / TICKS_PER_YEAR >= 18, 'father was an adult at the birth');
+              if (person.birthTick !== person.since) {
+                arrivedKids++;
+                if (person.moves.length > 0) arrivedKidsMoved++;
+              }
+            }
+          }
+          dd.dwellings.forEach((x, i) => {
+            if (x.kind !== 'home') return;
+            homes++;
+            if (l.residents(i).length === 0) vacant++;
+          });
+          sampled++;
+        }
+      }
+    }
+    assert.ok(vacant / homes < 0.2, `vacancy after a century: ${vacant}/${homes}`);
+    assert.ok(arrivedKids > 0, 'households with children arrive');
+    assert.ok(arrivedKidsMoved > 0, 'children who arrived with a household can leave home and found their own');
+    assert.ok(end > start * 0.6 && end < start * 1.6, `population after a century: ${start} -> ${end}`);
+  }
 
   // Fast-forwarding a long time must stay cheap.
   const t0 = performance.now();

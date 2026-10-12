@@ -24,6 +24,11 @@ const LEAVE_MIN = 18;
 const LEAVE_MAX = 30;
 const LEAVE_PER_WEEK = 0.5 / 52; // a young adult still at home moves out
 const PREFER_MATCH = 0.8; // chance they pick a household with someone they could pair with
+/** Chance that a young adult leaving home founds a household with a pairable peer in a vacant home. */
+const FOUND_HOUSEHOLD = 0.6;
+const FOUND_MAX_AGE = 35;
+/** Per vacant home per week: a household arrives from outside and moves in. Scales with vacancy, so it self-limits. */
+const HOUSEHOLD_PER_VACANT_WEEK = 0.012 / 52;
 
 export type Sex = 'f' | 'm';
 
@@ -40,12 +45,13 @@ export interface Person {
   deathTick: number | null;
   /** A mother is not fertile again before this tick (spacing between births varies). */
   restUntil: number;
-  /** Parents' ids. Null for the original residents and for people who moved in (unknown). */
+  /** Parents' ids. Null for the original residents and for adults who moved in (unknown); set for the children of
+   *  an arriving household as well as for people born in the district. */
   mother: number | null;
   father: number | null;
   /** Dwelling index they live in now. */
   residence: number;
-  /** Set once they have left the family home (or arrived from outside). */
+  /** Set once they have left the family home. Adults who arrive from outside start with it set; their children do not. */
   left: boolean;
   /** Moves after arriving, in order. */
   moves: { tick: number; to: number }[];
@@ -55,6 +61,8 @@ export interface LifeEvent {
   tick: number;
   kind: 'birth' | 'death' | 'arrival';
   dwelling: number;
+  /** People involved (a household that moved in). */
+  n?: number;
 }
 
 /** Deterministic float in [0, 1) from small integers; no strings, so folding thousands of weeks stays cheap. */
@@ -207,8 +215,11 @@ export class SiteLife {
   private step(week: number, onEvent?: (e: LifeEvent) => void): void {
     const tick = week * TICKS_PER_WEEK;
     const base = this.base;
-    const emit = (kind: LifeEvent['kind'], dwelling: number) => onEvent?.({ tick, kind, dwelling });
+    const emit = (kind: LifeEvent['kind'], dwelling: number, n?: number) => onEvent?.({ tick, kind, dwelling, n });
     const season = seasonOf(base, week);
+    // Crowding: a district that has outgrown its starting population births and receives fewer; one that has shrunk,
+    // more. Keeps long runs from running away to the building cap or dying out.
+    const crowd = Math.max(0.2, Math.min(1.3, 1 + (this.initial - this.living) / Math.max(1, this.initial)));
 
     // Deaths.
     const home: Person[][] = this.kinds.map(() => []);
@@ -222,16 +233,50 @@ export class SiteLife {
       }
     }
 
+    // Living children under 18 that a person has in a given household; a parent does not walk out on them.
+    const dependents = (p: Person, group: Person[]) =>
+      group.some((c) => (c.mother === p.id || c.father === p.id) && ageAt(c, tick) < ADULT);
+
     // Young adults leave the family home, preferring a household with someone they could pair with.
     for (const p of this.people) {
       if (p.deathTick !== null || p.left) continue;
       const age = ageAt(p, tick);
       if (age < LEAVE_MIN || age > LEAVE_MAX) continue;
       const here = home[p.residence]!;
+      if (dependents(p, here)) continue;
       const withParent = here.some((q) => q.id === p.mother || q.id === p.father);
       const crowded = p.mother === null && here.length >= 3; // original residents: no parents on record
       if (!withParent && !crowded) continue;
       if (roll(base, week, p.id, 10) >= LEAVE_PER_WEEK) continue;
+      // A couple founds a household: they take a vacant home together.
+      const vacantNow: number[] = [];
+      home.forEach((g, d) => {
+        if (this.kinds[d] === 'home' && g.length === 0) vacantNow.push(d);
+      });
+      if (vacantNow.length > 0 && roll(base, week, p.id, 30) < FOUND_HOUSEHOLD) {
+        const peers = this.people.filter(
+          (q) =>
+            q.deathTick === null &&
+            !q.left &&
+            q.id !== p.id &&
+            ageAt(q, tick) >= ADULT &&
+            ageAt(q, tick) <= FOUND_MAX_AGE &&
+            canPair(p, q, tick) &&
+            !dependents(q, home[q.residence]!),
+        );
+        if (peers.length > 0) {
+          const q = peers[Math.floor(roll(base, week, p.id, 31) * peers.length)]!;
+          const dest = vacantNow[Math.floor(roll(base, week, p.id, 32) * vacantNow.length)]!;
+          for (const m of [p, q]) {
+            home[m.residence] = home[m.residence]!.filter((x) => x.id !== m.id);
+            home[dest]!.push(m);
+            m.residence = dest;
+            m.left = true;
+            m.moves.push({ tick, to: dest });
+          }
+          continue;
+        }
+      }
       const open: number[] = [];
       home.forEach((g, d) => {
         if (d !== p.residence && this.kinds[d] === 'home' && g.length < MAX_OCCUPANTS) open.push(d);
@@ -257,7 +302,7 @@ export class SiteLife {
         if (f.sex !== 'f') continue;
         const age = ageAt(f, tick);
         if (age < ADULT || age >= FERTILE_MAX || tick < f.restUntil) continue;
-        if (roll(base, week, f.id, 2) >= BIRTH_PER_WEEK * fertility(base, f.id) * season.births) continue;
+        if (roll(base, week, f.id, 2) >= BIRTH_PER_WEEK * fertility(base, f.id) * season.births * crowd) continue;
         const partners = men.filter((m) => !isKin(f, m));
         if (partners.length === 0) {
           // No eligible man in the building: sometimes a partner moves in from elsewhere.
@@ -292,6 +337,58 @@ export class SiteLife {
         }
       }
     });
+
+    // Households arriving from outside into vacant homes. The more homes stand empty, the likelier one fills.
+    const vacant: number[] = [];
+    home.forEach((g, d) => {
+      if (this.kinds[d] === 'home' && g.length === 0) vacant.push(d);
+    });
+    if (vacant.length > 0 && roll(base, week, 0, 20) < vacant.length * HOUSEHOLD_PER_VACANT_WEEK * crowd) {
+      this.arrive(vacant[Math.floor(roll(base, week, 1, 21) * vacant.length)]!, week, tick, emit);
+    }
+  }
+
+  /** A household from outside: a single adult, a couple, or a couple with one to three children. */
+  private arrive(d: number, week: number, tick: number, emit: (kind: LifeEvent['kind'], dwelling: number, n?: number) => void): void {
+    const base = this.base;
+    const r = (k: number) => roll(base, week, d * 16 + k, 22);
+    // One tick earlier than 'now' at the very least, so an arriving infant is never mistaken for a birth here.
+    const born = (age: number, k: number) =>
+      tick - 1 - age * TICKS_PER_YEAR - Math.floor(roll(base, week, d * 16 + k, 23) * TICKS_PER_YEAR);
+    const kind = r(0);
+    const mk = (sex: Sex, age: number, k: number, parents?: [number, number]) =>
+      this.add({
+        origin: d,
+        sex,
+        birthTick: born(age, k),
+        since: tick,
+        mother: parents ? parents[0] : null,
+        father: parents ? parents[1] : null,
+        left: !parents, // an arriving adult has left their parents' home; their children have not
+      });
+    let size = 1;
+    if (kind < 0.25) {
+      mk(r(1) < 0.5 ? 'f' : 'm', 20 + Math.floor(r(2) * 40), 1);
+    } else {
+      const momAge = 20 + Math.floor(r(3) * 30);
+      const dadAge = 20 + Math.floor(r(4) * 35);
+      const mom = mk('f', momAge, 2);
+      const dad = mk('m', dadAge, 3);
+      size = 2;
+      if (kind >= 0.6) {
+        // Children are never older than their parents' age minus ADULT, so both were adults at the birth.
+        const kidMax = Math.min(14, momAge - ADULT - 1, dadAge - ADULT - 1); // -1: birthdays are spread through the year
+        const kids = 1 + Math.floor(r(5) * 3);
+        let youngest = -Infinity;
+        for (let i = 0; i < kids; i++) {
+          const kid = mk(r(6 + i) < 0.5 ? 'f' : 'm', Math.floor(r(9 + i) * (kidMax + 1)), 4 + i, [mom.id, dad.id]);
+          youngest = Math.max(youngest, kid.birthTick);
+          size++;
+        }
+        mom.restUntil = youngest + 52 * TICKS_PER_WEEK; // not fertile again straight away after the youngest
+      }
+    }
+    emit('arrival', d, size);
   }
 
   get living(): number {
@@ -305,7 +402,7 @@ export class SiteLife {
     let births = 0;
     let deaths = 0;
     for (const p of this.people) {
-      if (p.mother !== null) births++; // newborns only: original residents and adults who moved in have no mother on record
+      if (p.mother !== null && p.birthTick === p.since) births++; // born here: not the children of an arriving household
       if (p.deathTick !== null) deaths++;
     }
     return { births, deaths };
