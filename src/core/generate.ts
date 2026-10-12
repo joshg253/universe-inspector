@@ -4,7 +4,7 @@ import { YEAR } from './time';
 import { rngFor, makeNoise } from './rng';
 import { parsePath } from './path';
 import { layoutTown } from './town';
-import { SiteLife, ageAt, livingSeries, type Person, type SiteLifeSeed } from './life';
+import { SiteLife, ageAt, capacityOf, livingSeries, type Person, type SiteLifeSeed } from './life';
 import type { DeltaStore } from './deltas';
 import type {
   AnomalySummary,
@@ -363,6 +363,7 @@ function siteCore(seed: string, si: number, bi: number, ti: number): SiteCore {
         w: b.w,
         h: b.h,
         residents: b.residents,
+        capacity: b.kind === 'home' || b.kind === 'shop' ? capacityOf(b.w * b.h) : 0,
       };
     });
     return { body, site, cells: layout.cells, dwellings, style: layout.style };
@@ -457,7 +458,12 @@ export function siteLifeSeed(seed: string, si: number, bi: number, ti: number): 
       path: d.path,
       kind: d.kind,
       residents: d.residents,
+      x: d.x,
+      y: d.y,
+      w: d.w,
+      h: d.h,
     })),
+    grid: { n: SITE_N, cells: sc.cells },
   };
 }
 
@@ -585,6 +591,7 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
         fields: [
           { label: 'kind', value: d.kind, vocab: 'dwelling' },
           num('residents', children.length, 'inhabitants'),
+          ...(L.capacity(last.i) > 0 ? [num('capacity', L.capacity(last.i), 'inhabitants')] : []),
           num('condition', condition),
           num('output', output, 'economy'),
         ],

@@ -71,6 +71,10 @@ export interface DwellingSummary {
   w: number;
   h: number;
   residents: number;
+  /** People it holds at most (from its footprint; a home that stays full grows); 0 for works and the hall. */
+  capacity: number;
+  /** Cells a home has grown into beyond its rectangle (x, y, w, h), one cell at a time. */
+  extra?: { x: number; y: number }[];
   inspected: boolean;
 }
 

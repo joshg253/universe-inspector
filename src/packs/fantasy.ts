@@ -91,6 +91,7 @@ export const fantasy = definePack({
     'field.population': 'Souls',
     'field.dwellings': 'Dwellings in the quarter',
     'field.residents': 'Folk',
+    'field.capacity': 'Room for',
     'field.strength': 'Potency',
     'field.depth': 'Age (years)',
     'state.anomaly': 'omen',

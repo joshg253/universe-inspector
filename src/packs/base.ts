@@ -94,6 +94,7 @@ export const BASE_WORDS: Record<string, string> = {
   'field.population': 'Population',
   'field.dwellings': 'Dwellings in district',
   'field.residents': 'Residents',
+  'field.capacity': 'Room for',
   'field.residence': 'Lives in',
   'field.mother': 'Mother',
   'field.father': 'Father',
