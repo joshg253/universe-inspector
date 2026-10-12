@@ -41,6 +41,18 @@ progression through ages, all deterministic from the seed. You watch and inspect
       population consistent above district level, saving life state as canon.
       Cost: looking at a district folds its whole elapsed time, about 0.17 s per 1,000 years (linear in the living); after
       a very long run at a top speed that is seconds. A coarser fold for old history would cap it.
+- [~] **Planet calendar and seasons:** done: a body's period follows Kepler (orbit^1.5 over the square root of the star's
+      mass; orbit 50 around a mass-1 star is one standard year), it has a signed sidereal spin (slow ones and
+      retrograde ones exist), and its solar day is derived: `1 / |1/spin - 1/orbit|`, so a day can exceed a year
+      (Venus). Open: (1) seasons from axial tilt and orbit phase, stronger with latitude (the site's y), driving
+      temperature, then death and birth rates and later crops (random epidemic and famine years stay on top);
+      (2) eccentric orbits: e, argument of periapsis, speed from Kepler's equation, insolation `L / r^2` swinging over
+      the year, orbits spaced by periapsis and apoapsis so they do not cross; (3) inclination and node per orbit,
+      which matter for what an observer can see (transits, alignments) more than for the top-down map; (4) star
+      luminosity from class (L ~ M^3.5) and a habitable zone at sqrt(L) of the reference orbit, so a planet's kind
+      comes from its insolation instead of from which third of the orbit list it is in. The tick and the standard year
+      stay the universal clock (ages, speed ladder, `core/time.ts`); a planet's local day and year are for light,
+      local time and seasons only. Calendars with month names are a pack concern.
 - [ ] **Housing capacity and growth:** capacity is a flat 10 per home whatever its size, and nothing gives when a home
       is full. Capacity from the footprint (about 2 + area/2, capped at 10); crowding pushes the eldest grown child or a
       couple out; a home over its comfortable size for a while extends into free ground next to it (never road, water or
