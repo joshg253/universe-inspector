@@ -5,6 +5,7 @@ Status: `[ ]` idea, `[~]` in progress, `[x]` done.
 
 ## Direction
 
+
 A world that plays itself: SimCity-style towns that grow and balance (housing, food, industry) with Age of Empires-style
 progression through ages, all deterministic from the seed. You watch and inspect; the instruments come last.
 
@@ -26,6 +27,8 @@ progression through ages, all deterministic from the seed. You watch and inspect
 
 - [ ] Settlements can sit right on a shoreline of a world with water; nudge placement inland (changes generation)
 - [ ] Planet-level settlement lists show the generated population, not the live one
+- [ ] A district's population can exceed the people shown: the count keeps the unmodeled remainder when the modeled
+      residents die out (show it as its own line, or count simulated people only)
 - [ ] Phone/narrow layout is only a stacked fallback, not tuned for touch
 - [ ] Status and Record tabs don't react to selection (Results does)
 - [ ] Open on the universe level instead of system 0?
@@ -36,9 +39,9 @@ progression through ages, all deterministic from the seed. You watch and inspect
       same building, per-person fertility and frailty, varied spacing, twins, infant mortality, epidemic/famine years),
       deaths, 18-30 year olds moving out (couples found households in vacant homes), partners and whole households
       arriving from outside into vacant homes, a crowding feedback that keeps a district near its starting population
-      over centuries, links to parents/children/home, charts. Open: moving between settlements, abandoned buildings and
-      ruins, marriage/household formation beyond pairing, named newborn households, moves in the event log,
-      population consistent above district level, saving life state as canon.
+      over centuries, links to parents/children/home, charts. Open: named newborn households, moves in the event log,
+      population consistent above district level, saving life state as canon. Moves between settlements: see New
+      settlements; ruins: Abandonment; couples and households beyond pairing: Partners.
       Cost: looking at a district folds its whole elapsed time, about 0.17 s per 1,000 years (linear in the living); after
       a very long run at a top speed that is seconds. A coarser fold for old history would cap it.
 - [~] **Planet calendar and seasons:** done: a body's period follows Kepler (orbit^1.5 over the square root of the star's
@@ -57,10 +60,40 @@ progression through ages, all deterministic from the seed. You watch and inspect
       grown children out faster, and a home full for a quarter takes one adjacent free cell (never road, water or
       beside another building, so shapes bend; decided in the fold; the map shows it). Left: a couple (not only grown
       children) pushed out by crowding; new buildings come after, under founding dates below.
-      Homelessness: `residence` becomes optional (none = unhoused). People end up there when their home is lost (ruin),
+- [ ] **Homelessness:** `residence` becomes optional (none = unhoused). People end up there when their home is lost (ruin),
       a household is pushed out, or migrants arrive with no vacancy; they leave by taking the next vacant home (or
       squatting a ruin). Higher mortality in winter and famine years, lower fertility, shown in streets and plaza.
-      The unhoused count per district is a measurable stress signal that feeds economic pull.
+      Money and eviction is a second route here. The unhoused count per district is a measurable stress signal that feeds economic pull.
+- [ ] **Footpaths:** every building touches a road or the plaza. Today about 5% (back lots) do not. A short run of
+      road cells is carved from each landlocked building to the nearest road through free ground (never over a
+      building or water); layout draws kept so the rest of the town is unchanged. Test: every building touches a road.
+      Later a path cell type separate from road, and the access rule for any new building.
+      Entrances: each building has one door, an edge cell facing a road, plaza or path cell (derived, not stored: a
+      pure function of building and grid, nearest road or plaza first, fixed scan order as the tie-break; growth never
+      covers it). Drawn as a door mark on the map; daily routines later walk door to door, shops and the hall may get
+      several. Test: every building has an entrance cell that is road, plaza or path.
+- [ ] **Lots and outbuildings:** a lot is a parcel (cells, an owner later) that holds a main dwelling and any outbuildings
+      (garage, shed, barn, workshop: no residents, own kind, own footprint). Growth happens inside the lot (its yard is
+      the buffer, replacing the "never touch another building" rule); a lot has road access (footpath) or a lane.
+      Town lots are small; lots outside the town are large (a farmstead, a cabin in the woods, an estate), so people
+      live beyond the built-up edge and the district map shows scattered holdings. Ownership, rent and tax attach to
+      lots. Paths: outbuildings must not shift existing `d<n>` indexes (appended after, or their own `o<n>` segment).
+      Needs footpaths first; a building holding several units (units per building) is still a separate step.
+
+- [ ] **Partners:** an explicit `partner` link on a person, never inferred from sharing a home (housemates and
+      roommates stay unlinked), one partner at most (a single nullable id, no larger groups), any pair of adults
+      including same-sex couples, so a couple without children is shown (the `+` under their other half) and a widowed
+      survivor is distinct. Set only for generated couples: the couple shape at tick 0, arriving couples, partners who
+      move in and founding pairs. Partnership and children are separate: a birth needs a recorded partner pair that
+      includes a fertile woman and a man (roommates never have a child), and a same-sex couple's children come by
+      adoption or a child arriving with them. `mother`/`father` then become "parents" so a child can have two mothers
+      or two fathers (the tree already keys the `+` on the other parent). `canPair` (opposite sex, not kin) stays the
+      test for who can conceive, not for who can be together. Partners need not share a home: a couple living in
+      two buildings (or two towns) is a link between two people in different dwellings, shown in the record and
+      in the list as a link rather than a `+` row. A partnership can end (a weekly chance; distance
+      (different building, town, planet) moves it up for most couples and down for some, by a per-person
+      disposition such as independent or clingy, so no flat rule; separation and a quarrel are the same event with a
+      reason on each person's record), after which both are unlinked and either can partner again. Needs a Model-notes entry.
 - [ ] **Ages and what gets built:** no calendar year (systems evolve separately). A fixed ordered ladder of ages
       (about 6, no skipping); each settlement has a starting rung and a pace from the seed, `ageAt(site, tick)` is
       pure, core knows only the rung number, packs name ages and may stop short. A building catalog (data: age it
@@ -79,6 +112,14 @@ progression through ages, all deterministic from the seed. You watch and inspect
       order and a growth curve. People only live in buildings that exist, so households found new homes and
       population pressure becomes construction. New settlements appear on planet maps with a log line.
       Decisions open: maturity as a hidden roll or a visible record field; whether abandoned buildings become ruins.
+- [ ] **Abandonment, ruins and replacement:** a building with no one left in it can be abandoned, then fall to ruin, then be
+      replaced or cleared. Chance of abandoning rises with each abandoned building nearby, scaled by how long those
+      have stood empty (decay spreads like blight), so a dying edge becomes a ruined quarter. A ruin is a state of
+      the building (kept in the fold: pure function of the week, processed in index order), not a deletion, so paths and
+      the people who lived there stay valid. A lot can be rebuilt as the age allows (an old hut replaced by a house).
+      The tick-0 ruins in "New settlements" are the same state. Tied to the age ladder: early ages have trails and
+      huts, later ages paths and structures, and the catalog says what replaces what.
+
 - [ ] **Money, ownership and eviction:** `wealth` is a random record field with no effect today. Households earn at
       their workplace, pay for food and upkeep, and owe rent, a mortgage or property tax (form per age and pack). Every
       building has an owner (a household, a landlord with several buildings, or the settlement); tenants pay owners,
@@ -99,6 +140,47 @@ progression through ages, all deterministic from the seed. You watch and inspect
       their family when it moves. A move is an event with a reason, a destination and a tick, so a person's record shows
       where they went and why. It needs people to belong to the world and not to one district's fold (one fold per
       planet, above), and a person's path stays the dwelling they started in. Cross-town couples need Partners.
+- [ ] **Roads between settlements:** trails, then roads, then highways connect towns on the planet map, by age (the same
+      ladder as footpaths and huts). A link is a pure function of the two sites and the age (terrain-aware: around
+      water and steep ground), drawn on the body map and entering each district at the edge facing its neighbor, where
+      the town's main road meets it. Links are what trade, migration and economic pull travel along (distance as
+      cost), and what the observer can follow first (a road shows what lies at its end). Needs ages and the new
+      settlements/migration items first.
+
+- [ ] **Economic pull and migration:** whether a settlement grows or dies is mostly what draws people in, not births and
+      deaths (a boomtown near big employers grows 2%+ a year at any price; a bypassed town with no industry shrinks or
+      stalls). Give each settlement a `pull` from the seed, its size and its building mix (works/shops as the industry
+      proxy), drifting over centuries (booms and busts). Pull drives net migration: positive means more arrivals and
+      fewer departures, negative means households leave the district and homes empty. Housing is the ceiling: growth
+      beyond the existing homes needs construction (see founding dates and growth) or more people per home up to the
+      cap, which is where cost and congestion would come from once there is an economy. Replaces the crowding feedback in
+      `life.ts`, which pulls every district back to its starting size. Later: squatters living in vacant buildings,
+      abandoned buildings and ruins.
+- [ ] **Terrain resources and industry as the cause of pull** (sits under economic pull, before construction): per-cell
+      resource values on the planet map derived from seed + terrain (fertility, ore/stone, water/coast, timber); a
+      settlement's catchment (cells within a radius, plus river/coast/pass) decides which industries are possible; works
+      buildings get a type (farm, mine, mill, market) and a size that can grow or move; pull = catchment richness +
+      industry + connectivity - congestion. All observable in the inspector (a mining town booms when its mine grows).
+      Player verbs (found a settlement, fund an industry, build a road, ...) are deliberately undecided: build the world
+      first, watch it live, then choose. Open question: inspector (investigate, scan, score) vs ruler (nudge, build).
+- [ ] **Daily routines (work and school):** works and the hall are empty at tick 0 and shops only hold a keeper's
+      household, so nobody goes anywhere. Give each person an assigned place (working-age: a works, shop or the hall;
+      children: school, which needs a building kind or the hall; elders and the unemployed: home) and derive where
+      they are from the tick of day and day of the week (`whereAt(person, tick)`: pure, nothing stored, so looking
+      late still equals watching). Visible as dots moving between buildings on the district map and as "at: X" in the
+      person's record. Needs: a `workplace` link on Person (stable per person, changes on job moves), staffing
+      numbers per building from its size and kind, local solar time (already there) so night shifts follow the day.
+      Rosters fall out of the same assignment: a building's staff, or a school's students and teachers, are the people
+      assigned there (derived, not stored), shown in its record next to its residents; a person's record gets
+      "works at" / "attends" beside "lives in". Understaffing is then measurable.
+      Ties into terrain resources and industry (what a works makes decides its staff).
+- [~] **Starting households:** done: tick-0 homes hold couples with children, single parents, older parents with grown
+      children, step-parent families, three generations and housemates; parents are recorded only inside the dwelling (no ancestors before
+      tick 0), every parent was an adult at each birth, and the residents list shows couples with children indented
+      (partner marked +, family name omitted when it is the household's). Open: siblings who have left home, twins
+      sharing a birth year.
+- [ ] **Kin check beyond the district:** pairing only knows kin recorded since tick 0 and within one building (original
+      residents' parents are unknown). A fuller family model comes with Partners and moves between settlements.
 - [ ] Live per-entity simulation beyond districts: inflate a settlement's population number into consistent people,
       collapse back to summaries when not watched
 - [ ] Zoom deeper than the district: individual building interiors, trees, animals, people
@@ -169,49 +251,9 @@ progression through ages, all deterministic from the seed. You watch and inspect
 
 ## Inbox
 
+
 (new ideas land here)
 
-- [ ] **Roads between settlements:** trails, then roads, then highways connect towns on the planet map, by age (the same
-      ladder as footpaths and huts). A link is a pure function of the two sites and the age (terrain-aware: around
-      water and steep ground), drawn on the body map and entering each district at the edge facing its neighbor, where
-      the town's main road meets it. Links are what trade, migration and economic pull travel along (distance as
-      cost), and what the observer can follow first (a road shows what lies at its end). Needs ages and the new
-      settlements/migration items first.
-
-- [ ] **Abandonment, ruins and replacement:** a building with no one left in it can be abandoned, then fall to ruin, then be
-      replaced or cleared. Chance of abandoning rises with each abandoned building nearby, scaled by how long those
-      have stood empty (decay spreads like blight), so a dying edge becomes a ruined quarter. A ruin is a state of
-      the building (kept in the fold: pure function of the week, processed in index order), not a deletion, so paths and
-      the people who lived there stay valid. A lot can be rebuilt as the age allows (an old hut replaced by a house).
-      The tick-0 ruins in "New settlements" are the same state. Tied to the age ladder: early ages have trails and
-      huts, later ages paths and structures, and the catalog says what replaces what.
-
-- [ ] **Footpaths:** every building touches a road or the plaza. Today about 5% (back lots) do not. A short run of
-      road cells is carved from each landlocked building to the nearest road through free ground (never over a
-      building or water); layout draws kept so the rest of the town is unchanged. Test: every building touches a road.
-      Later a path cell type separate from road, and the access rule for any new building.
-- [ ] **Lots and outbuildings:** a lot is a parcel (cells, an owner later) that holds a main dwelling and any outbuildings
-      (garage, shed, barn, workshop: no residents, own kind, own footprint). Growth happens inside the lot (its yard is
-      the buffer, replacing the "never touch another building" rule); a lot has road access (footpath) or a lane.
-      Town lots are small; lots outside the town are large (a farmstead, a cabin in the woods, an estate), so people
-      live beyond the built-up edge and the district map shows scattered holdings. Ownership, rent and tax attach to
-      lots. Paths: outbuildings must not shift existing `d<n>` indexes (appended after, or their own `o<n>` segment).
-      Needs footpaths first; a building holding several units (units per building) is still a separate step.
-
-- [ ] **Partners:** an explicit `partner` link on a person, never inferred from sharing a home (housemates and
-      roommates stay unlinked), one partner at most (a single nullable id, no larger groups), any pair of adults
-      including same-sex couples, so a couple without children is shown (the `+` under their other half) and a widowed
-      survivor is distinct. Set only for generated couples: the couple shape at tick 0, arriving couples, partners who
-      move in and founding pairs. Partnership and children are separate: a birth needs a recorded partner pair that
-      includes a fertile woman and a man (roommates never have a child), and a same-sex couple's children come by
-      adoption or a child arriving with them. `mother`/`father` then become "parents" so a child can have two mothers
-      or two fathers (the tree already keys the `+` on the other parent). `canPair` (opposite sex, not kin) stays the
-      test for who can conceive, not for who can be together. Partners need not share a home: a couple living in
-      two buildings (or two towns) is a link between two people in different dwellings, shown in the record and
-      in the list as a link rather than a `+` row. A partnership can end (a weekly chance; distance
-      (different building, town, planet) moves it up for most couples and down for some, by a per-person
-      disposition such as independent or clingy, so no flat rule; separation and a quarrel are the same event with a
-      reason on each person's record), after which both are unlinked and either can partner again. Needs a Model-notes entry.
 - [ ] **Canon vs provisional (observation persistence):** inspecting something commits it. Today "inspect"
       only stores a boolean flag and the content is regenerated from the seed each time, so a generator
       change would silently alter things you already inspected. Idea: on inspect, snapshot the record into
@@ -248,39 +290,5 @@ progression through ages, all deterministic from the seed. You watch and inspect
       - Varied: also mixes in a per-world random salt and inspection-time context. Results are stored as
         canon once seen, so the world is stable and savable; the seed alone no longer re-creates it.
       Store `mode`, `salt`, pack, and features in the world file.
-- [ ] **Kin check beyond the district:** pairing currently only knows kin recorded since tick 0 and within one
-      building; original residents' parents are unknown. A fuller family model comes with moves between settlements.
 - [ ] **Town style by pack:** styles are chosen from the seed (packs only render them). If a pack should prefer
       tidy grids or sprawl, that has to be a rendering concern or an explicit world setting, not a regeneration.
-- [ ] **Economic pull and migration:** whether a settlement grows or dies is mostly what draws people in, not births and
-      deaths (a boomtown near big employers grows 2%+ a year at any price; a bypassed town with no industry shrinks or
-      stalls). Give each settlement a `pull` from the seed, its size and its building mix (works/shops as the industry
-      proxy), drifting over centuries (booms and busts). Pull drives net migration: positive means more arrivals and
-      fewer departures, negative means households leave the district and homes empty. Housing is the ceiling: growth
-      beyond the existing homes needs construction (see founding dates and growth) or more people per home up to the
-      cap, which is where cost and congestion would come from once there is an economy. Replaces the crowding feedback in
-      `life.ts`, which pulls every district back to its starting size. Later: squatters living in vacant buildings,
-      abandoned buildings and ruins.
-- [ ] **Terrain resources and industry as the cause of pull** (sits under economic pull, before construction): per-cell
-      resource values on the planet map derived from seed + terrain (fertility, ore/stone, water/coast, timber); a
-      settlement's catchment (cells within a radius, plus river/coast/pass) decides which industries are possible; works
-      buildings get a type (farm, mine, mill, market) and a size that can grow or move; pull = catchment richness +
-      industry + connectivity - congestion. All observable in the inspector (a mining town booms when its mine grows).
-      Player verbs (found a settlement, fund an industry, build a road, ...) are deliberately undecided: build the world
-      first, watch it live, then choose. Open question: inspector (investigate, scan, score) vs ruler (nudge, build).
-- [ ] **Daily routines (work and school):** works and the hall are empty at tick 0 and shops only hold a keeper's
-      household, so nobody goes anywhere. Give each person an assigned place (working-age: a works, shop or the hall;
-      children: school, which needs a building kind or the hall; elders and the unemployed: home) and derive where
-      they are from the tick of day and day of the week (`whereAt(person, tick)`: pure, nothing stored, so looking
-      late still equals watching). Visible as dots moving between buildings on the district map and as "at: X" in the
-      person's record. Needs: a `workplace` link on Person (stable per person, changes on job moves), staffing
-      numbers per building from its size and kind, local solar time (already there) so night shifts follow the day.
-      Rosters fall out of the same assignment: a building's staff, or a school's students and teachers, are the people
-      assigned there (derived, not stored), shown in its record next to its residents; a person's record gets
-      "works at" / "attends" beside "lives in". Understaffing is then measurable.
-      Ties into terrain resources and industry (what a works makes decides its staff).
-- [~] **Starting households:** done: tick-0 homes hold couples with children, single parents, older parents with grown
-      children, step-parent families, three generations and housemates; parents are recorded only inside the dwelling (no ancestors before
-      tick 0), every parent was an adult at each birth, and the residents list shows couples with children indented
-      (partner marked +, family name omitted when it is the household's). Open: siblings who have left home, twins
-      sharing a birth year.
