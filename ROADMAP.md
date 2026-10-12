@@ -29,8 +29,10 @@ Status: `[ ]` idea, `[~]` in progress, `[x]` done.
 
 - [~] **Living districts** (`core/life.ts`): done: aging, births (woman 18-49 and an eligible non-kin man 18-70 in the
       same building, per-person fertility and frailty, varied spacing, twins, infant mortality, epidemic/famine years),
-      deaths, 18-30 year olds moving out, partners moving in, links to parents/children/home, charts. Open: moving between
-      settlements, marriage/household formation beyond pairing, named newborn households, moves in the event log,
+      deaths, 18-30 year olds moving out (couples found households in vacant homes), partners and whole households
+      arriving from outside into vacant homes, a crowding feedback that keeps a district near its starting population
+      over centuries, links to parents/children/home, charts. Open: moving between settlements, abandoned buildings and
+      ruins, marriage/household formation beyond pairing, named newborn households, moves in the event log,
       population consistent above district level, saving life state as canon.
 - [ ] **Founding dates and growth:** every settlement gets a `founded` tick (negative = already existed, so old towns
       are more built-out at tick 0; positive = appears later) and every building a `builtTick` from the town's plan
@@ -47,7 +49,8 @@ Status: `[ ]` idea, `[~]` in progress, `[x]` done.
 
 ## Gameplay
 
-- [ ] **Instrument upgrades:** the inspector's tools limit how much detail is visible. Generator still
+- [ ] **Instrument upgrades** (do this after the simulation is fleshed out; it is a filter on records and views, never
+      a change to generation): the inspector's tools limit how much detail is visible. Generator still
       produces everything; a tier decides max zoom depth, which layers show, and how precise record
       fields are (e.g. "Population ~2,000" early on). Tier stored with the deltas.
 - [ ] Planted-vs-found loop: scans produce findings, a report scores them
@@ -129,3 +132,25 @@ Status: `[ ]` idea, `[~]` in progress, `[x]` done.
       building; original residents' parents are unknown. A fuller family model comes with moves between settlements.
 - [ ] **Town style by pack:** styles are chosen from the seed (packs only render them). If a pack should prefer
       tidy grids or sprawl, that has to be a rendering concern or an explicit world setting, not a regeneration.
+- [ ] **Economic pull and migration:** whether a settlement grows or dies is mostly what draws people in, not births and
+      deaths (a boomtown near big employers grows 2%+ a year at any price; a bypassed town with no industry shrinks or
+      stalls). Give each settlement a `pull` from the seed, its size and its building mix (works/shops as the industry
+      proxy), drifting over centuries (booms and busts). Pull drives net migration: positive means more arrivals and
+      fewer departures, negative means households leave the district and homes empty. Housing is the ceiling: growth
+      beyond the existing homes needs construction (see founding dates and growth) or more people per home up to the
+      cap, which is where cost and congestion would come from once there is an economy. Replaces the crowding feedback in
+      `life.ts`, which pulls every district back to its starting size. Later: squatters living in vacant buildings,
+      abandoned buildings and ruins.
+- [ ] **Terrain resources and industry as the cause of pull** (sits under economic pull, before construction): per-cell
+      resource values on the planet map derived from seed + terrain (fertility, ore/stone, water/coast, timber); a
+      settlement's catchment (cells within a radius, plus river/coast/pass) decides which industries are possible; works
+      buildings get a type (farm, mine, mill, market) and a size that can grow or move; pull = catchment richness +
+      industry + connectivity - congestion. All observable in the inspector (a mining town booms when its mine grows).
+      Player verbs (found a settlement, fund an industry, build a road, ...) are deliberately undecided: build the world
+      first, watch it live, then choose. Open question: inspector (investigate, scan, score) vs ruler (nudge, build).
+- [ ] **Coherent starting households:** at tick 0 every resident is rolled independently (age 1-82, sex a coin flip), so a
+      house holds unrelated people with no recorded lineage. Build starting households like arriving ones: a
+      composition for the headcount (single, couple, family, blended family, single parent, grandparent plus family),
+      consistent ages (parents 18+ years older than children, twins share a birth year), `mother`/`father` recorded for
+      children whose parent lives there. Records and the life model must read the same household. Scope: within one
+      dwelling only; no generated ancestors or siblings outside it (a parent who is not there stays unknown).
