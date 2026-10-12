@@ -7,10 +7,12 @@
 // People keep one identity for life: their path is `<dwelling they started in>/p<n>`. Where they live now is a
 // separate fact (`residence`), so moving house never changes who they are or breaks a link to them.
 import { hash32 } from './rng';
+import { WEEK, YEAR } from './time';
 import type { SiteView } from './types';
 
-export const TICKS_PER_YEAR = 8760; // 1 tick = 1 hour
-export const TICKS_PER_WEEK = 168;
+// Standard units (see time.ts); kept under the old names for the callers that count ages and weeks.
+export const TICKS_PER_YEAR = YEAR;
+export const TICKS_PER_WEEK = WEEK;
 
 const ADULT = 18;
 const FERTILE_MAX = 50; // women: no births from this age on
@@ -155,6 +157,9 @@ export class SiteLife {
   readonly initial: number;
   private readonly base: number;
   private readonly kinds: string[];
+  /** The people alive now, in id order. The fold walks this instead of everyone who ever lived, so a long run costs
+   *  time in proportion to the living, not to the dead that pile up. */
+  private alive: Person[] = [];
   /** byOrigin[d][n] = id of the person whose path is `<dwelling d>/p<n>`. */
   private readonly byOrigin: number[][];
 
@@ -285,6 +290,7 @@ export class SiteLife {
       moves: [],
     };
     this.people.push(person);
+    this.alive.push(person);
     list.push(person.id);
     return person;
   }
@@ -296,7 +302,7 @@ export class SiteLife {
 
   /** Living people whose home is this dwelling right now. */
   residents(dwelling: number): Person[] {
-    return this.people.filter((p) => p.deathTick === null && p.residence === dwelling);
+    return this.alive.filter((p) => p.residence === dwelling);
   }
 
   /** Fold forward to `week` (no-op if already there). Weeks only ever move forward. */
@@ -317,8 +323,7 @@ export class SiteLife {
 
     // Deaths.
     const home: Person[][] = this.kinds.map(() => []);
-    for (const p of this.people) {
-      if (p.deathTick !== null) continue;
+    for (const p of this.alive) {
       if (roll(base, week, p.id, 1) < deathChance(ageAt(p, tick)) * frailty(base, p.id) * season.deaths) {
         p.deathTick = tick;
         emit('death', p.residence);
@@ -326,14 +331,15 @@ export class SiteLife {
         home[p.residence]!.push(p);
       }
     }
+    this.alive = this.alive.filter((p) => p.deathTick === null);
 
     // Living children under 18 that a person has in a given household; a parent does not walk out on them.
     const dependents = (p: Person, group: Person[]) =>
       group.some((c) => (c.mother === p.id || c.father === p.id) && ageAt(c, tick) < ADULT);
 
     // Young adults leave the family home, preferring a household with someone they could pair with.
-    for (const p of this.people) {
-      if (p.deathTick !== null || p.left) continue;
+    for (const p of this.alive) {
+      if (p.left) continue;
       const age = ageAt(p, tick);
       if (age < LEAVE_MIN || age > LEAVE_MAX) continue;
       const here = home[p.residence]!;
@@ -348,9 +354,8 @@ export class SiteLife {
         if (this.kinds[d] === 'home' && g.length === 0) vacantNow.push(d);
       });
       if (vacantNow.length > 0 && roll(base, week, p.id, 30) < FOUND_HOUSEHOLD) {
-        const peers = this.people.filter(
+        const peers = this.alive.filter(
           (q) =>
-            q.deathTick === null &&
             !q.left &&
             q.id !== p.id &&
             ageAt(q, tick) >= ADULT &&
@@ -486,9 +491,7 @@ export class SiteLife {
   }
 
   get living(): number {
-    let n = 0;
-    for (const p of this.people) if (p.deathTick === null) n++;
-    return n;
+    return this.alive.length;
   }
 
   /** Births and deaths since tick 0. */
@@ -519,19 +522,32 @@ export interface SeriesPoint {
  * birth, death and move ticks, so history is available however late you look. Empty until a week has run.
  */
 export function livingSeries(life: SiteLife, dwelling: number | null, offset = 0, points = 96): SeriesPoint[] {
-  const end = life.week * TICKS_PER_WEEK;
-  if (end < TICKS_PER_WEEK) return [];
-  const n = Math.min(points, life.week + 1);
-  const out: SeriesPoint[] = [];
-  for (let i = 0; i < n; i++) {
-    const t = Math.round((end * i) / (n - 1));
+  const W = life.week;
+  if (W < 1) return [];
+  const count = (week: number): number => {
+    const t = week * TICKS_PER_WEEK;
     let v = 0;
     for (const p of life.people) {
       if (p.since > t || (p.deathTick !== null && p.deathTick <= t)) continue;
       if (dwelling === null || residenceAt(p, t) === dwelling) v++;
     }
-    out.push({ t, v: v + offset });
+    return v + offset;
+  };
+  // Points sit on a fixed grid (a power-of-two number of weeks apart) and each one is the average headcount over the
+  // bucket it closes, so a finished stretch of the line does not change as time advances (until the spacing doubles,
+  // when the whole line is resampled once): a one-week dip does not flicker in and out of the sampling. The first and
+  // last points are exact, so the ends match the live headcount.
+  const n = Math.max(2, Math.floor(points));
+  let step = 1;
+  while (step * (n - 1) < W) step *= 2;
+  const out: SeriesPoint[] = [{ t: 0, v: count(0) }];
+  for (let k = 1; k * step < W; k++) {
+    const samples = Math.min(4, step);
+    let sum = 0;
+    for (let q = 0; q < samples; q++) sum += count((k - 1) * step + 1 + Math.floor((q * step) / samples));
+    out.push({ t: k * step * TICKS_PER_WEEK, v: Math.round(sum / samples) });
   }
+  out.push({ t: W * TICKS_PER_WEEK, v: count(W) });
   return out;
 }
 

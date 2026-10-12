@@ -11,7 +11,7 @@ progression through ages, all deterministic from the seed. You watch and inspect
 ## Status (what exists)
 
 - [x] Seeded, path-addressed generation: universe, system, planet, settlement district, dwelling, person, anomaly
-- [x] Tick sim (1 tick = 1 hour) with Step and speeds 1x to 8760x, runs in a Web Worker
+- [x] Tick sim (1 tick = 1 hour) with a Step size and five speeds that multiply the zoom level's default step, runs in a Web Worker
 - [x] Living districts: aging, births, deaths, moving out (see Simulation and world)
 - [x] Town generator: four street styles, plaza and hall, rivers with bridges, buildings along the streets
 - [x] Nine skins (Amiga, Classic Mac, Windows 3.1/95/98/2000/XP, BeOS, Flat); sci-fi and fantasy content packs;
@@ -39,6 +39,8 @@ progression through ages, all deterministic from the seed. You watch and inspect
       over centuries, links to parents/children/home, charts. Open: moving between settlements, abandoned buildings and
       ruins, marriage/household formation beyond pairing, named newborn households, moves in the event log,
       population consistent above district level, saving life state as canon.
+      Cost: looking at a district folds its whole elapsed time, about 0.17 s per 1,000 years (linear in the living); after
+      a very long run at a top speed that is seconds. A coarser fold for old history would cap it.
 - [ ] **Housing capacity and growth:** capacity is a flat 10 per home whatever its size, and nothing gives when a home
       is full. Capacity from the footprint (about 2 + area/2, capped at 10); crowding pushes the eldest grown child or a
       couple out; a home over its comfortable size for a while extends into free ground next to it (never road, water or

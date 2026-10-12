@@ -962,6 +962,12 @@ a.crumb {
   stroke-width: 1;
 }
 
+.chart-tick {
+  stroke: color-mix(in srgb, var(--text) 22%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
 .chart-text {
   font: 10px var(--font);
   fill: color-mix(in srgb, var(--text) 65%, transparent);
@@ -1641,4 +1647,18 @@ a.crumb {
   clip-path: none;
   padding-right: 8px;
   box-shadow: inset 1px 1px #fff3a0, inset -1px 0 #9a7a00, inset 0 -1px #c89600;
+}
+
+/* A stat with a graph behind it: click to show the graph. */
+table.kv tr.statlink {
+  cursor: pointer;
+}
+
+table.kv tr.statlink td.k {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+table.kv tr.statlink.on td {
+  font-weight: bold;
 }

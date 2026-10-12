@@ -3,7 +3,7 @@ import { Sim, dynFor } from '../core/sim';
 import { genBody, genRecord, genSite, genSystem, genUniverse } from '../core/generate';
 import { applyLife } from '../core/life';
 import { parsePath, sitePathOf } from '../core/path';
-import { SPEED_TPS, type FromWorker, type ToWorker } from '../core/protocol';
+import { LEVELS, SPEED_GLYPHS, speedTps, type FromWorker, type ToWorker } from '../core/protocol';
 import type { SimEvent, View } from '../core/types';
 
 const ctx = self as unknown as {
@@ -69,12 +69,10 @@ function postTick(): void {
   dirty = false;
 }
 
-function runTicks(n: number): void {
-  for (let i = 0; i < n; i++) {
-    const evs = sim.step();
-    if (evs.length) evBuf.push(...evs);
-  }
-  tpsCount += n;
+function runTicks(n: number, countRate = true): void {
+  const evs = sim.advance(n);
+  for (const e of evs) evBuf.push(e);
+  if (countRate) tpsCount += n;
   dirty = true;
   refreshLive();
 }
@@ -87,12 +85,12 @@ setInterval(() => {
   const now = performance.now();
   const dt = (now - last) / 1000;
   last = now;
-  const target = SPEED_TPS[speedIdx] ?? 0;
+  const target = speedTps(view ? LEVELS.indexOf(view.level) : 0, speedIdx);
   if (target > 0) {
     acc += target * dt;
     let n = Math.floor(acc);
     acc -= n;
-    n = Math.min(n, 2000);
+    n = Math.min(n, 20_000_000); // a long span is jumped (see Sim.advance), so this stays cheap
     if (n > 0) runTicks(n);
   }
   if (now - tpsT0 >= 1000) {
@@ -130,11 +128,11 @@ ctx.onmessage = (e) => {
         ctx.postMessage({ type: 'record', record: recordFor(msg.path) });
         break;
       case 'step':
-        runTicks(Math.max(1, Math.min(1_000_000, msg.n ?? 1)));
+        runTicks(Math.max(1, Math.min(10_000_000, msg.n ?? 1)), false);
         postTick();
         break;
       case 'speed':
-        speedIdx = Math.max(0, Math.min(SPEED_TPS.length - 1, msg.index));
+        speedIdx = Math.max(0, Math.min(SPEED_GLYPHS.length - 1, msg.index));
         acc = 0;
         dirty = true;
         break;
