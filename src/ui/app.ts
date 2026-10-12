@@ -141,7 +141,7 @@ export function startApp(root: HTMLElement): void {
     marks: { ...(saved.marks ?? {}) } as Record<string, boolean>,
     leftW: Math.max(LEFT_MIN, saved.leftW ?? LEFT_DEFAULT),
     view: null as View | null,
-    viewPath: 's0',
+    viewPath: '',
     selPath: null as string | null,
     record: null as RecordData | null,
     tick: 0,
@@ -719,6 +719,13 @@ export function startApp(root: HTMLElement): void {
     for (const c of r.charts ?? []) {
       resultsBody.append(h('div', { class: 'section-title' }, t(`field.${c.label}`)), lineChart(t(`field.${c.label}`), c.points, fmtTime));
     }
+    // In a household's own list the family name is the household's, so it is left off unless it differs.
+    const listName = (c: RecordChild, parent: RecordData): string => {
+      const full = nm(c.nameKind, c.nameKey, c.tag);
+      if (parent.kind !== 'dwelling' || c.nameKind !== 'person' || c.nameKey >>> 16 !== parent.nameKey >>> 16) return full;
+      const family = nm('dwelling', parent.nameKey);
+      return full.endsWith(` ${family}`) ? full.slice(0, -family.length - 1) : full;
+    };
     const group = (title: string, items: RecordChild[]): void => {
       const shown = items.filter((c) => !c.feature || state.features[c.feature]);
       if (shown.length === 0) return;
@@ -729,8 +736,13 @@ export function startApp(root: HTMLElement): void {
         list.append(
           h(
             'a',
-            { class: 'crumb', href: '#', onclick: (e: Event) => (e.preventDefault(), select(c.path)) },
-            `${nm(c.nameKind, c.nameKey, c.tag)}${meta}`,
+            {
+              class: 'crumb',
+              href: '#',
+              style: c.indent ? `margin-left:${c.indent * 14}px` : '',
+              onclick: (e: Event) => (e.preventDefault(), select(c.path)),
+            },
+            `${c.partner ? '+ ' : c.indent ? '└ ' : ''}${listName(c, r)}${meta}`,
           ),
         );
       }
@@ -893,7 +905,7 @@ export function startApp(root: HTMLElement): void {
     send({ type: 'reset', seed });
     renderChrome();
     renderLog();
-    goView('s0');
+    goView('');
   }
 
   function applyPack(id: string): void {
@@ -989,7 +1001,7 @@ export function startApp(root: HTMLElement): void {
   renderResults();
   renderButtons();
   send({ type: 'reset', seed: state.seed });
-  goView(query.get('view') ?? 's0');
+  goView(query.get('view') ?? '');
   const ticks = Number(query.get('ticks'));
   if (ticks > 0) send({ type: 'step', n: ticks });
   // More of the state in the URL (used for documentation screenshots): ?sel=<path>&tab=results&menu=1&dialog=new

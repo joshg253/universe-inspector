@@ -137,19 +137,77 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.ok(births > 0 && deaths > 0, `births ${births}, deaths ${deaths}`);
   assert.ok(stepped.people.some((p) => p.moves.length > 0), 'young adults move out');
 
-  // Parentage: every newborn has a mother and a father, and the pair are not close kin.
-  for (const p of stepped.people.filter((q) => q.mother !== null)) {
-    const mom = stepped.people[p.mother!]!;
-    const dad = stepped.people[p.father!]!;
-    assert.equal(mom.sex, 'f');
-    assert.equal(dad.sex, 'm');
+  // Parentage: whoever is recorded as a parent has the right sex and was an adult at the birth; a child born in the
+  // district has both, and a pair of parents are not close kin. (Starting households can have one parent on record.)
+  for (const p of stepped.people.filter((q) => q.mother !== null || q.father !== null)) {
+    const mom = p.mother === null ? null : stepped.people[p.mother]!;
+    const dad = p.father === null ? null : stepped.people[p.father]!;
+    if (mom) assert.equal(mom.sex, 'f');
+    if (dad) assert.equal(dad.sex, 'm');
+    if (mom) assert.ok((p.birthTick - mom.birthTick) / TICKS_PER_YEAR >= 18, 'the mother was an adult at the birth');
+    if (mom) assert.ok((p.birthTick - mom.birthTick) / TICKS_PER_YEAR < 50, 'the mother was under 50 at the birth');
+    if (dad) assert.ok((p.birthTick - dad.birthTick) / TICKS_PER_YEAR >= 18, 'the father was an adult at the birth');
+    if (dad) assert.ok((p.birthTick - dad.birthTick) / TICKS_PER_YEAR < 71, 'the father was at most 70 at the birth');
+    if (p.birthTick >= p.since && p.birthTick === p.since && p.since > 0) assert.ok(mom && dad, 'a birth here has both parents');
+    if (!mom || !dad) continue;
     assert.ok(dad.mother !== mom.id && dad.father !== mom.id, "father is not the mother's child");
     assert.ok(mom.mother !== dad.id && mom.father !== dad.id, "mother is not the father's child");
     assert.ok(!(mom.mother !== null && mom.mother === dad.mother), 'parents are not siblings');
     assert.ok(!(mom.father !== null && mom.father === dad.father), 'parents are not half-siblings');
-    assert.ok((p.birthTick - mom.birthTick) / TICKS_PER_YEAR >= 18, 'the mother was an adult at the birth');
-    assert.ok((p.birthTick - dad.birthTick) / TICKS_PER_YEAR >= 18, 'the father was an adult at the birth');
   }
+
+  // Starting households: parents are only people in the same home, children are younger than both by 18 years or
+  // more, and no one's parents exist before tick 0.
+  const start = new SiteLife(seed, data);
+  let withKids = 0;
+  let strangers = 0;
+  for (const p of start.people) {
+    for (const par of [p.mother, p.father]) {
+      if (par === null) continue;
+      const q = start.people[par]!;
+      assert.equal(q.origin, p.origin, 'a starting parent lives in the same home');
+      assert.ok(q.local < p.local, 'parents come before their children');
+    }
+    if (p.mother !== null || p.father !== null) withKids++;
+    const kd = data.dwellings[p.origin]!.kind;
+    if (kd !== 'home' && kd !== 'shop' && (p.mother !== null || p.father !== null)) strangers++;
+  }
+  assert.ok(withKids > 0, 'some starting residents are children of others in the home');
+  assert.equal(start.totals.births, 0, 'the starting children are not births here');
+  data.dwellings.forEach((dw, di) => {
+    if (dw.kind === 'works' || dw.kind === 'hall') assert.equal(dw.residents, 0, 'works and the hall start empty');
+    // Starting siblings (same parents, not twins) are at least about a year apart.
+    const born = start.residents(di).filter((q) => q.mother !== null || q.father !== null);
+    const byParents = new Map<string, number[]>();
+    for (const q of born) byParents.set(`${q.mother}/${q.father}`, [...(byParents.get(`${q.mother}/${q.father}`) ?? []), q.birthTick]);
+    for (const ticks of byParents.values()) {
+      ticks.sort((a, b) => a - b);
+      for (let i = 1; i < ticks.length; i++) assert.ok(ticks[i]! - ticks[i - 1]! >= 40 * TICKS_PER_WEEK, 'starting siblings are spaced');
+    }
+  });
+  // Records without a running district read the same household: sex, links and the list order.
+  for (let di = 0; di < data.dwellings.length && di < 12; di++) {
+    for (const q of start.residents(di)) {
+      const rec = genRecord(seed, `${data.dwellings[q.origin]!.path}/p${q.local}`, new DeltaStore());
+      assert.equal(rec.fields.find((f) => f.label === 'sex')?.value, q.sex, 'record sex matches the model');
+      assert.equal((rec.links ?? []).some((l) => l.label === 'mother'), q.mother !== null, 'record links the mother');
+      assert.equal((rec.links ?? []).some((l) => l.label === 'father'), q.father !== null, 'record links the father');
+    }
+  }
+  let threeGen = 0;
+  for (const s of [seed, 'beta', 'gamma', 'delta']) {
+    const sb = settledBodyIndexes(s, 0);
+    for (const b of sb) for (const st of bodySites(s, 0, b)) {
+      const sd = siteLifeSeed(s, 0, b, st.index);
+      const sl = new SiteLife(s, sd);
+      sd.dwellings.forEach((_, di) => {
+        const res = sl.residents(di);
+        if (res.some((p) => p.mother !== null && res.some((g) => g.id === p.mother && g.mother !== null || g.id === p.mother && g.father !== null))) threeGen++;
+      });
+    }
+  }
+  assert.ok(threeGen > 0, 'some starting homes hold three generations');
+  assert.equal(strangers, 0, 'works and the hall hold no families');
 
   // Everyone lives somewhere real, and no building is over capacity once settled.
   const occupancy = new Map<number, number>();
@@ -160,11 +218,12 @@ assert.equal(viewLevel('s1/b2'), 'body');
   }
   assert.ok(Math.max(...occupancy.values()) <= 10, 'no dwelling holds more than ten people');
 
-  // Age is the rolled age at tick 0 and goes up one per year.
-  const d0 = data.dwellings.findIndex((x) => x.ages.length > 0);
+  // Age goes up one per year, and the record without a running district shows the same age as the model at tick 0.
+  const d0 = data.dwellings.findIndex((x) => x.residents > 0);
   const p0 = new SiteLife(seed, data).person(d0, 0)!;
-  assert.equal(ageAt(p0, 0), data.dwellings[d0]!.ages[0]);
-  assert.equal(ageAt(p0, 5 * TICKS_PER_YEAR), data.dwellings[d0]!.ages[0]! + 5);
+  assert.equal(ageAt(p0, 5 * TICKS_PER_YEAR), ageAt(p0, 0) + 5);
+  const rec0 = genRecord(seed, `${data.dwellings[d0]!.path}/p0`, new DeltaStore());
+  assert.equal(rec0.fields.find((f) => f.label === 'age')!.value, ageAt(p0, 0));
 
   // The Sim reports the same world whether the district was watched from the start or only looked at later.
   const watched = new Sim(seed);
@@ -179,7 +238,6 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.equal(series[0]!.v, stepped.initial);
   assert.equal(series[series.length - 1]!.v, stepped.living);
   assert.equal(livingSeries(new SiteLife(seed, data), null).length, 0);
-
   // Records agree with the model: a dwelling lists its current residents, a moved person still resolves by path.
   const tick = WEEKS * TICKS_PER_WEEK;
   const live = { tick, life: stepped };
@@ -218,9 +276,9 @@ assert.equal(viewLevel('s1/b2'), 'body');
             assert.equal(l.person(person.origin, person.local), person, 'a person is found by their path');
             if (person.mother !== null) {
               const mom = l.people[person.mother]!;
-              const dad = l.people[person.father!]!;
+              const dad = person.father === null ? null : l.people[person.father]!;
               assert.ok((person.birthTick - mom.birthTick) / TICKS_PER_YEAR >= 18, 'mother was an adult at the birth');
-              assert.ok((person.birthTick - dad.birthTick) / TICKS_PER_YEAR >= 18, 'father was an adult at the birth');
+              if (dad) assert.ok((person.birthTick - dad.birthTick) / TICKS_PER_YEAR >= 18, 'father was an adult at the birth');
               if (person.birthTick !== person.since) {
                 arrivedKids++;
                 if (person.moves.length > 0) arrivedKidsMoved++;

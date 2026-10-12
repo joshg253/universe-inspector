@@ -194,7 +194,7 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
   const hy = cy - Math.floor(hh / 2);
   const ring = size === 'large' ? 2 : 1;
   for (let y = hy - ring; y < hy + hh + ring; y++) for (let x = hx - ring; x < hx + hw + ring; x++) put(x, y, CELL.plaza, false);
-  const buildings: TownBuilding[] = [{ x: hx, y: hy, w: hw, h: hh, kind: 'hall', residents: r.int(0, 2) }];
+  const buildings: TownBuilding[] = [{ x: hx, y: hy, w: hw, h: hh, kind: 'hall', residents: (r.int(0, 2), 0) }]; // the draw is kept so every later one is unchanged
   for (let y = hy; y < hy + hh; y++) for (let x = hx; x < hx + hw; x++) occ[y * N + x] = 1;
 
   // ---- buildings along the streets
@@ -271,8 +271,8 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
       b.kind === 'home'
         ? Math.max(1, Math.min(8, 1 + Math.floor(area * r.range(0.15, 0.55))))
         : b.kind === 'shop'
-          ? r.int(0, 2)
-          : r.int(0, 3);
+          ? r.int(0, 2) // the keeper's household lives above the shop
+          : (r.int(0, 3), 0); // works and the hall are workplaces; nobody lives there (draw kept, see above)
   }
   buildings.sort((a, b) => a.y - b.y || a.x - b.x);
 

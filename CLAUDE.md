@@ -17,6 +17,8 @@ Roadmap Inbox when the user mentions them.
   looking late equals watching all along. The selftest enforces it; keep it passing. `Math.random()` is allowed
   in `src/ui/` only (the dialog's Random button).
 - Skin (CSS variables) vs content pack vs feature sets are three separate things; keep them separate.
+- Sim rules and their constants are recorded in the Wiki's Model notes page (`../universe-inspector.wiki/Model-Notes.md`)
+  as sourced (a published model), observation, or stand-in. When a rule or constant changes, update that page in the same push.
 
 ## Commands
 

@@ -3,7 +3,7 @@
 import { rngFor, makeNoise } from './rng';
 import { parsePath } from './path';
 import { layoutTown } from './town';
-import { ageAt, livingSeries, type Person, type SiteLife, type SiteLifeSeed } from './life';
+import { SiteLife, ageAt, livingSeries, type Person, type SiteLifeSeed } from './life';
 import type { DeltaStore } from './deltas';
 import type {
   AnomalySummary,
@@ -373,6 +373,38 @@ function personKey(seed: string, dwellingNameKey: number, personPath: string): n
   return ((((dwellingNameKey >>> 16) << 16) | given) >>> 0) as number;
 }
 
+/**
+ * A household in family-tree order: each couple (or lone parent) followed by their children, indented, and then
+ * those children's own children. The other parent of the children is flagged `partner`, so a housemate who is no
+ * relation is not mistaken for one. Anyone whose parents are not at home is a root. Oldest first at every level.
+ */
+export function familyOrder(here: Person[], tick: number): { p: Person; indent: number; partner: boolean }[] {
+  const ids = new Set(here.map((p) => p.id));
+  const isChild = (p: Person) => (p.mother !== null && ids.has(p.mother)) || (p.father !== null && ids.has(p.father));
+  const older = (a: Person, b: Person) => ageAt(b, tick) - ageAt(a, tick) || a.id - b.id;
+  const out: { p: Person; indent: number; partner: boolean }[] = [];
+  const placed = new Set<number>();
+  const place = (p: Person, indent: number, partner = false): void => {
+    if (placed.has(p.id)) return;
+    placed.add(p.id);
+    out.push({ p, indent, partner });
+    const kids = here.filter((c) => (c.mother === p.id || c.father === p.id) && !placed.has(c.id)).sort(older);
+    // The other parent of these children, if at home, goes straight after.
+    for (const k of kids) {
+      const otherId = p.sex === 'f' ? k.father : k.mother;
+      const other = otherId === null ? undefined : here.find((q) => q.id === otherId);
+      if (other && !placed.has(other.id) && !isChild(other)) {
+        placed.add(other.id);
+        out.push({ p: other, indent, partner: true });
+      }
+    }
+    for (const k of kids) place(k, Math.min(indent + 1, 3));
+  };
+  for (const p of [...here].sort(older)) if (!isChild(p)) place(p, 0);
+  for (const p of [...here].sort(older)) place(p, 0); // cycles cannot happen, but never drop anyone
+  return out;
+}
+
 /** A person as a link in a record: their path names the dwelling they started in, wherever they live now. */
 function personLink(seed: string, sc: SiteCore, p: Person, tick: number): RecordChild {
   const origin = sc.dwellings[p.origin]!;
@@ -386,12 +418,6 @@ function personLink(seed: string, sc: SiteCore, p: Person, tick: number): Record
   };
 }
 
-/** Age at tick 0. The first draw of the person's record stream, so records and the life model agree. */
-function initialAge(seed: string, personPath: string, head: boolean): number {
-  const r = rngFor(seed, personPath, 'record');
-  return head ? r.int(19, 78) : r.int(1, 82);
-}
-
 /** Everyone alive in a district at tick 0, for the life model. */
 export function siteLifeSeed(seed: string, si: number, bi: number, ti: number): SiteLifeSeed {
   const sc = siteCore(seed, si, bi, ti);
@@ -400,9 +426,15 @@ export function siteLifeSeed(seed: string, si: number, bi: number, ti: number): 
     dwellings: sc.dwellings.map((d) => ({
       path: d.path,
       kind: d.kind,
-      ages: Array.from({ length: d.residents }, (_, j) => initialAge(seed, `${d.path}/p${j}`, j === 0 && d.kind === 'home')),
+      residents: d.residents,
     })),
   };
+}
+
+const tick0Cache = new Map<string, SiteLife>();
+/** The district as it is at tick 0, for records shown without a running district. Never advanced. */
+function tick0Life(seed: string, si: number, bi: number, ti: number): SiteLife {
+  return memo(tick0Cache, `${seed}|${si}|${bi}|${ti}`, 16, () => new SiteLife(seed, siteLifeSeed(seed, si, bi, ti)));
 }
 
 /** Time-dependent state a record can reflect. Without it, records show the world at tick 0. */
@@ -506,13 +538,13 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
       const condition = r.int(20, 100);
       const output = Math.round(r.range(0, 100) * (d.kind === 'works' ? 1 : d.kind === 'shop' ? 0.7 : 0.3));
       const life = live?.life ?? null;
-      const here = life ? life.residents(last.i) : null;
-      const children: RecordChild[] = here
-        ? here.map((p) => personLink(seed, sc, p, live!.tick))
-        : Array.from({ length: d.residents }, (_, j) => {
-            const pp = `${d.path}/p${j}`;
-            return { path: pp, nameKey: personKey(seed, d.nameKey, pp), nameKind: 'person' as const, feature: 'inhabitants' as const };
-          });
+      const L = life ?? tick0Life(seed, si, bi, ti); // without a running district: the people as they start
+      const T = life ? live!.tick : 0;
+      const children: RecordChild[] = familyOrder(L.residents(last.i), T).map(({ p, indent, partner }) => ({
+        ...personLink(seed, sc, p, T),
+        indent,
+        ...(partner ? { partner } : {}),
+      }));
       return {
         path,
         kind: 'dwelling',
@@ -536,25 +568,27 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
       const d = dwelling ? sc.dwellings[dwelling.i] : undefined;
       if (!d) throw new Error('Person without dwelling');
       const r = rngFor(seed, path, 'record');
-      const rolledAge = last.i === 0 && d.kind === 'home' ? r.int(19, 78) : r.int(1, 82);
-      const life = live?.life ?? null;
-      const me = life?.person(dwelling!.i, last.i);
-      const age = me ? ageAt(me, live!.tick) : rolledAge;
+      r.int(1, 82); // the draw that used to give the age; kept so traits and mood do not shift
+      // Without a running district, the person as they start (tick 0), from the same model.
+      const L = live?.life ?? tick0Life(seed, si, bi, ti);
+      const T = live?.life ? live.tick : 0;
+      const me = L.person(dwelling!.i, last.i);
+      const age = me ? ageAt(me, T) : 0;
       // Always draw, so traits and mood stay put as the age (and so the role) changes over time.
       const rolePick = r.pick(ROLES);
       const wealthRoll = r.int(0, 100);
       const role = age < 14 ? 'child' : age > 66 ? 'elder' : rolePick;
-      const people = (ps: Person[]): RecordChild[] => ps.map((p) => personLink(seed, sc, p, live!.tick));
+      const people = (ps: Person[]): RecordChild[] => ps.map((p) => personLink(seed, sc, p, T));
       const links: RecordLinks[] = [];
-      if (life && me) {
+      if (me) {
         const group = (label: string, items: RecordChild[]) => items.length > 0 && links.push({ label, items });
         if (me.deathTick === null) {
           const home = sc.dwellings[me.residence]!;
           group('residence', [{ path: home.path, nameKey: home.nameKey, nameKind: 'dwelling', tag: home.kind }]);
         }
-        group('mother', people(me.mother === null ? [] : [life.people[me.mother]!]));
-        group('father', people(me.father === null ? [] : [life.people[me.father]!]));
-        group('offspring', people(life.people.filter((p) => p.mother === me.id || p.father === me.id)));
+        group('mother', people(me.mother === null ? [] : [L.people[me.mother]!]));
+        group('father', people(me.father === null ? [] : [L.people[me.father]!]));
+        group('offspring', people(L.people.filter((p) => p.mother === me.id || p.father === me.id)));
       }
       return {
         path,

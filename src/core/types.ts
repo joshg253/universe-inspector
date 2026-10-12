@@ -169,6 +169,10 @@ export interface RecordChild {
   feature?: FeatureId;
   /** For people, shown beside the name (sex/age). `dead` people keep their age at death. */
   meta?: { sex: 'f' | 'm'; age: number; dead: boolean };
+  /** In a household list: 1 for a child shown under their parents, 2 for a grandchild. */
+  indent?: number;
+  /** In a household list: the other parent of the children listed under the person above (shown with a +). */
+  partner?: boolean;
 }
 
 /** A named group of related records, e.g. a person's mother or children. */
