@@ -58,7 +58,7 @@ progression through ages, all deterministic from the seed. You watch and inspect
       local time and seasons only. Calendars with month names are a pack concern.
 - [~] **Housing capacity and growth:** done: capacity from the footprint (2 + area/2, cap 10), a full home pushes its
       grown children out faster, and a home full for a quarter takes one adjacent free cell (never road, water or
-      beside another building, so shapes bend; decided in the fold; the map shows it). Left: a couple (not only grown
+      beside another building, so shapes bend but leave no pockets; decided in the fold; the map shows it). Left: a couple (not only grown
       children) pushed out by crowding; new buildings come after, under founding dates below.
 - [ ] **Homelessness:** `residence` becomes optional (none = unhoused). People end up there when their home is lost (ruin),
       a household is pushed out, or migrants arrive with no vacancy; they leave by taking the next vacant home (or
@@ -75,6 +75,8 @@ progression through ages, all deterministic from the seed. You watch and inspect
 - [ ] **Lots and outbuildings:** a lot is a parcel (cells, an owner later) that holds a main dwelling and any outbuildings
       (garage, shed, barn, workshop: no residents, own kind, own footprint). Growth happens inside the lot (its yard is
       the buffer, replacing the "never touch another building" rule); a lot has road access (footpath) or a lane.
+      A building stays inside its lot (growth is bounded by the plot, not only by neighbors); going past it means
+      acquiring more land: an adjacent free plot or a neighbor's, bought or leased once money and ownership exist.
       Town lots are small; lots outside the town are large (a farmstead, a cabin in the woods, an estate), so people
       live beyond the built-up edge and the district map shows scattered holdings. Ownership, rent and tax attach to
       lots. Paths: outbuildings must not shift existing `d<n>` indexes (appended after, or their own `o<n>` segment).
@@ -105,8 +107,11 @@ progression through ages, all deterministic from the seed. You watch and inspect
       each other). Buildings keep the type of the age they were built in, so towns are layered. Later, trade pulls
       neighbors up (see economic pull).
 - [ ] **Units per building:** dense multi-unit buildings downtown early, larger single homes further out as ages
-      pass. A building holds several households; capacity and vacancy are per unit; a person gets a unit number
-      beside their dwelling (paths and identity unchanged). Needs housing capacity first.
+      pass. Storeys: a building has a floor count (from its age and place: tall downtown, low outside); capacity comes
+      from footprint x floors, so a building can grow up instead of out (cheaper than buying land, see Lots), drawn as a
+      height number or shading on the map, with units stacked per floor. A building holds several households; capacity
+      and vacancy are per unit; a person gets a unit number beside their dwelling (paths and identity unchanged).
+      Needs housing capacity first.
 - [ ] **Founding dates and growth:** every settlement gets a `founded` tick (negative = already existed, so old towns
       are more built-out at tick 0; positive = appears later) and every building a `builtTick` from the town's plan
       order and a growth curve. People only live in buildings that exist, so households found new homes and
