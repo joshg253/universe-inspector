@@ -1,5 +1,6 @@
 // Screenshot the running dev server with headless Edge (no install; Edge ships with Windows). Waits until the world has rendered.
 // usage: scripts/run.cmd node scripts/shot.mjs "<url>" <out.png> [width] [height] [waitSelector]
+// SHOT_TEXT=1 also prints the text of the active left panel, to check content without reading the image.
 // url params: ?skin=amiga&pack=fantasy&seed=abc&view=s0/b0&ticks=2000  (view="" is the universe)
 import { spawn } from 'node:child_process';
 import { writeFileSync, mkdtempSync } from 'node:fs';
@@ -57,6 +58,10 @@ try {
   await sleep(600); // let the map draw after the view arrives
   const shot = await send('Page.captureScreenshot', { format: 'png' });
   writeFileSync(out, Buffer.from(shot.result.data, 'base64'));
+  if (process.env.SHOT_TEXT) {
+    const t = await send('Runtime.evaluate', { expression: "document.querySelector('.panel.active')?.innerText ?? ''", returnByValue: true });
+    console.log(t.result?.result?.value);
+  }
   console.log(ok ? 'ready' : 'TIMEOUT waiting for ' + waitSel, logs.length ? logs.join('\n') : 'no errors');
 } finally {
   try { ws?.close(); } catch {}

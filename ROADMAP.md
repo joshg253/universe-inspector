@@ -50,7 +50,7 @@ Status: `[ ]` idea, `[~]` in progress, `[x]` done.
 - [ ] **Instrument upgrades:** the inspector's tools limit how much detail is visible. Generator still
       produces everything; a tier decides max zoom depth, which layers show, and how precise record
       fields are (e.g. "Population ~2,000" early on). Tier stored with the deltas.
-- [ ] Planted-vs-found loop from the original wafer tool: scans produce findings, a report scores them
+- [ ] Planted-vs-found loop: scans produce findings, a report scores them
       against ground truth (missed / extra / echoes), reusing the Status / Results / Record tabs
 - [ ] Scan cost (time or resources) tied to resolution and coverage
 - [ ] Goals and progression; keep a pure sandbox mode
@@ -59,7 +59,7 @@ Status: `[ ]` idea, `[~]` in progress, `[x]` done.
 
 - [ ] Selection drives every tab: Status shows a selection summary, Record filters events to the selection
 - [ ] Per-item history in the Record tab
-- [ ] Screenshots tab (from the original tool's layout) for saved views
+- [ ] Screenshots tab for saved views
 - [ ] Phone-friendly layout and touch gestures (pinch zoom, tap/long-press)
 - [ ] Skin polish: only BeOS, Amiga, Win 3.1 and Mac have been matched against reference screenshots;
       2000, XP and Flat have not
@@ -69,13 +69,16 @@ Status: `[ ]` idea, `[~]` in progress, `[x]` done.
 ## Platform and infra
 
 - [~] Hosting: repo is on GitLab (`joshg253/universe-inspector`), commits are SSH-signed
-- [ ] **CI in GitLab:** `.gitlab-ci.yml` running install, `npm test` and `npm run build` on every push (Node 24), later
-      a Pages job for the static build
+- [~] **CI in GitLab:** `.gitlab-ci.yml` added (install, `npm test`, `npm run build`, advisory `npm audit`; Node 24). Not
+      yet run on GitLab. Later: a Pages job for the static build (`vite.config.ts` already uses a relative base)
 - [ ] **Automated review:** Sourcery or similar on merge requests (keep MRs small and single-purpose; reviewers skip
       big diffs and have shared budgets). Check what each supports on GitLab before choosing.
 - [ ] GitLab CLI (`glab`) + a project access token (Developer role, `main` protected) so merge requests can be
       opened from the terminal; merging stays with the owner
 - [ ] Save/load UI: seed + `DeltaStore.toJSON()` is the whole save; export/import file, IndexedDB
+- [~] Wiki: pages drafted (Home, Using the inspector, Skins, Simulation, Architecture, Development) with screenshots;
+      pushed once the project wiki is initialised. README is the short version.
+- [ ] License: undecided; none while the repo is private (decide before it goes public)
 - [ ] Shareable seeds / URLs (state parameters exist; a proper share link and save format do not)
 - [ ] Self-host the static build on the VPS
 - [ ] Desktop packaging for Windows/Linux (Tauri wraps the current build as-is)
