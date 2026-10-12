@@ -992,4 +992,11 @@ export function startApp(root: HTMLElement): void {
   goView(query.get('view') ?? 's0');
   const ticks = Number(query.get('ticks'));
   if (ticks > 0) send({ type: 'step', n: ticks });
+  // More of the state in the URL (used for documentation screenshots): ?sel=<path>&tab=results&menu=1&dialog=new
+  const sel = query.get('sel');
+  if (sel) select(sel);
+  const tab = query.get('tab');
+  if (tab && TABS.some(([id]) => id === tab)) setTab(tab as Tab);
+  if (query.get('menu') === '1') startMenu.classList.add('open');
+  if (query.get('dialog') === 'new') openNewUniverse();
 }

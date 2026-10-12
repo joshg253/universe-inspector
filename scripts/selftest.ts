@@ -4,6 +4,8 @@ import { DeltaStore } from '../src/core/deltas';
 import { bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
 import { SiteLife, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, livingSeries } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
+import { layoutTown } from '../src/core/town';
+import { rngFor } from '../src/core/rng';
 import { Sim, dynFor } from '../src/core/sim';
 import { packOf, PACKS } from '../src/packs';
 
@@ -85,6 +87,33 @@ assert.equal(uni.systems[3]!.bodyCount, genSystem('alpha', 3, d).bodies.length, 
 assert.equal(genSystem('alpha', 3, d).trail[0]!.path, '', 'system trail starts at the universe');
 assert.equal(viewLevel(''), 'universe');
 assert.equal(viewLevel('s1/b2'), 'body');
+
+// 7b. Towns must not depend on the engine's sort: run the layout under a sort that calls comparators in a different
+// order (a bubble sort) and require the same result. Catches an rng used inside a comparator.
+{
+  const run = () =>
+    ['small', 'medium', 'large'].map((size, i) =>
+      json(layoutTown(64, size as 'small' | 'medium' | 'large', [40, 700, 5000][i]!, 'temperate', rngFor('alpha', `town/${size}`, 'layout'))),
+    );
+  const native = run();
+  const nativeSort = Array.prototype.sort;
+  Array.prototype.sort = function (this: unknown[], cmp?: (a: never, b: never) => number) {
+    const f = cmp as (a: unknown, b: unknown) => number;
+    for (let end = this.length - 1; end > 0; end--) {
+      for (let j = 0; j < end; j++) {
+        if (f(this[j], this[j + 1]) > 0) [this[j], this[j + 1]] = [this[j + 1], this[j]];
+      }
+    }
+    return this;
+  } as typeof Array.prototype.sort;
+  let other: string[];
+  try {
+    other = run();
+  } finally {
+    Array.prototype.sort = nativeSort;
+  }
+  assert.deepEqual(other, native, 'town layout does not depend on how the engine orders sort comparisons');
+}
 
 // 8. Life: births, deaths, aging and moving house are a pure function of (seed, site, week).
 {

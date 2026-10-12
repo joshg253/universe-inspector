@@ -232,7 +232,14 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
     const d = dist(x, y);
     if (d > R + 2) continue;
     const p = Math.max(0.12, Math.min(0.97, dens * (1.05 - 0.5 * (d / R))));
-    for (const side of [0, 1, 2, 3].sort(() => r.range(-1, 1))) {
+    // Fisher-Yates with the seeded rng. Never an rng inside a sort comparator: engines call comparators in
+    // different orders, so the same seed would give different towns in Node and in the browser.
+    const sides = [0, 1, 2, 3];
+    for (let i = sides.length - 1; i > 0; i--) {
+      const j = r.int(0, i);
+      [sides[i], sides[j]] = [sides[j]!, sides[i]!];
+    }
+    for (const side of sides) {
       if (!r.chance(p)) continue;
       const [w, h] = footprint();
       const bx = side === 2 ? x - w : side === 3 ? x + 1 : x - r.int(0, w - 1);

@@ -11,6 +11,8 @@ Roadmap Inbox when the user mentions them.
 - Everything generated is a pure function of `(seed, path)`. Never use `Math.random()` in core.
   Only changes are stored (`DeltaStore`).
 - The sim only knows ticks. Speed buttons just call `step()` more often.
+- Never call the rng inside a `sort` comparator, or depend on engine-specific ordering: Node and browsers call
+  comparators in different orders, so one seed gives different worlds. Shuffle with Fisher-Yates.
 - `core/life.ts` (people) and `core/town.ts` (district layout) are pure too: functions of (seed, path[, week]), so
   looking late equals watching all along. The selftest enforces it; keep it passing. `Math.random()` is allowed
   in `src/ui/` only (the dialog's Random button).
