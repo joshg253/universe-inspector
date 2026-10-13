@@ -158,7 +158,19 @@ function seasonOf(base: number, week: number): { deaths: number; births: number 
 export interface SiteLifeSeed {
   path: string;
   /** `residents` is how many people live there at tick 0; who they are and how they are related comes from the model. */
-  dwellings: { path: string; kind: string; residents: number; x: number; y: number; w: number; h: number }[];
+  dwellings: {
+    path: string;
+    kind: string;
+    residents: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    /** The week it is finished; absent or 0: standing from the start. Until then nobody lives there and it does not grow. */
+    built?: number;
+    /** The parcel it stands on; a home grows only inside it. Absent: no bound. */
+    plot?: { x: number; y: number; w: number; h: number };
+  }[];
   /** The district grid (side n, one terrain code per cell), so a home can find free ground to grow into. */
   grid: { n: number; cells: Uint8Array };
 }
@@ -186,6 +198,9 @@ export class SiteLife {
   private readonly extra: Cell[][];
   private readonly area: number[];
   private readonly origin: { x: number; y: number; w: number; h: number }[];
+  /** The week each dwelling is finished. */
+  private readonly builtWeek: number[];
+  private readonly plot: ({ x: number; y: number; w: number; h: number } | undefined)[];
   /** 1 where any building stands. */
   private readonly occ: Uint8Array;
   private readonly grid: { n: number; cells: Uint8Array };
@@ -205,6 +220,8 @@ export class SiteLife {
     this.grid = data.grid;
     this.occ = new Uint8Array(data.grid.n * data.grid.n);
     this.origin = data.dwellings.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h }));
+    this.plot = data.dwellings.map((d) => d.plot);
+    this.builtWeek = data.dwellings.map((d) => d.built ?? 0);
     for (const d of data.dwellings) this.paintRect(d);
     this.fullWeeks = data.dwellings.map(() => 0);
     this.boxedIn = data.dwellings.map(() => false);
@@ -342,6 +359,11 @@ export class SiteLife {
     return this.extra[dwelling]!;
   }
 
+  /** Whether a dwelling stands at the given week. */
+  isBuilt(dwelling: number, week: number = this.week): boolean {
+    return this.builtWeek[dwelling]! <= week;
+  }
+
   /** People a dwelling holds at most right now; none for works and the hall. */
   capacity(dwelling: number): number {
     const k = this.kinds[dwelling];
@@ -385,6 +407,7 @@ export class SiteLife {
     const mine = new Set<number>();
     for (let y = own.y; y < own.y + own.h; y++) for (let x = own.x; x < own.x + own.w; x++) mine.add(y * n + x);
     for (const c of this.extra[d]!) mine.add(c.y * n + c.x);
+    const pl = this.plot[d];
     const cand = new Set<number>();
     for (const k of mine) {
       const x = k % n;
@@ -392,6 +415,7 @@ export class SiteLife {
       for (const [nx, ny] of [[x, y - 1], [x - 1, y], [x + 1, y], [x, y + 1]] as const) {
         if (nx < 0 || ny < 0 || nx >= n || ny >= n) continue;
         const nk = ny * n + nx;
+        if (pl && (nx < pl.x || ny < pl.y || nx >= pl.x + pl.w || ny >= pl.y + pl.h)) continue; // never past its plot
         if (!mine.has(nk) && !this.occ[nk] && FREE_CELLS.includes(this.grid.cells[nk]!) && !this.touchesOther(nk, mine)) cand.add(nk);
       }
     }
@@ -512,7 +536,7 @@ export class SiteLife {
       // A couple founds a household: they take a vacant home together.
       const vacantNow: number[] = [];
       home.forEach((g, d) => {
-        if (this.kinds[d] === 'home' && g.length === 0) vacantNow.push(d);
+        if (this.kinds[d] === 'home' && this.isBuilt(d, week) && g.length === 0) vacantNow.push(d);
       });
       if (vacantNow.length > 0 && roll(base, week, p.id, 30) < FOUND_HOUSEHOLD) {
         const peers = this.alive.filter(
@@ -539,7 +563,7 @@ export class SiteLife {
       }
       const open: number[] = [];
       home.forEach((g, d) => {
-        if (d !== p.residence && this.kinds[d] === 'home' && g.length < this.capacity(d)) open.push(d);
+        if (d !== p.residence && this.kinds[d] === 'home' && this.isBuilt(d, week) && g.length < this.capacity(d)) open.push(d);
       });
       if (open.length === 0) continue;
       const matches = open.filter((d) => home[d]!.some((q) => canPair(p, q, tick)));
@@ -601,7 +625,7 @@ export class SiteLife {
 
     // A home that has stayed full extends into free ground beside it, and one that has grown finishes the notches of its outline.
     home.forEach((g, d) => {
-      if (this.kinds[d] !== 'home') return;
+      if (this.kinds[d] !== 'home' || !this.isBuilt(d, week)) return;
       // One cell a week at most: a home that finished a notch this week does not also take a full-home cell.
       if (this.finish[d]! > 0 && --this.finish[d]! === 0 && this.expand(d, week, true)) return;
       if (g.length < this.capacity(d)) this.fullWeeks[d] = 0;
@@ -611,10 +635,17 @@ export class SiteLife {
       }
     });
 
+    // A home finished this week is built because someone needs it: a household arrives with it.
+    home.forEach((g, d) => {
+      if ((this.kinds[d] !== 'home' && this.kinds[d] !== 'shop') || this.builtWeek[d] !== week || g.length > 0) return; // a shop gets its keeper's household
+      this.arrive(d, week, tick, emit);
+      home[d] = this.alive.filter((p) => p.residence === d);
+    });
+
     // Households arriving from outside into vacant homes. The more homes stand empty, the likelier one fills.
     const vacant: number[] = [];
     home.forEach((g, d) => {
-      if (this.kinds[d] === 'home' && g.length === 0) vacant.push(d);
+      if (this.kinds[d] === 'home' && this.isBuilt(d, week) && g.length === 0) vacant.push(d);
     });
     if (vacant.length > 0 && roll(base, week, 0, 20) < vacant.length * HOUSEHOLD_PER_VACANT_WEEK * crowd) {
       this.arrive(vacant[Math.floor(roll(base, week, 1, 21) * vacant.length)]!, week, tick, emit);
@@ -732,6 +763,6 @@ export function applyLife(view: SiteView, life: SiteLife): SiteView {
   return {
     ...view,
     population: life.living,
-    dwellings: view.dwellings.map((d, i) => ({ ...d, extra: [...life.extension(i)], capacity: life.capacity(i), residents: counts[i] ?? d.residents })),
+    dwellings: view.dwellings.map((d, i) => ({ ...d, extra: [...life.extension(i)], capacity: life.capacity(i), built: life.isBuilt(i), residents: counts[i] ?? d.residents })),
   };
 }

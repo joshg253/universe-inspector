@@ -68,9 +68,16 @@ progression through ages, all deterministic from the seed. You watch and inspect
 - [~] **Footpaths and entrances:** done: every building has a derived door (an edge cell facing the plaza, else a road) drawn
       as a mark, and a building with no street beside it gets the shortest run of free cells to the nearest street
       (over land, else a bridge across the river, at most 40 cells); no random draws.
-      A building walled in by its neighbors (about 1 in 12,000) is not built, which shifts the later `d<n>` indexes of that district. Left: a path cell type separate from road;
-      the access rule for any new building; shops and the hall may get several doors; routines walk door to door.
-- [ ] **Lots and outbuildings:** a lot is a parcel (cells, an owner later) that holds a main dwelling and any outbuildings
+      A building walled in by other buildings (rare) is not built, which shifts the later `d<n>` indexes of that
+      district. Carved paths are a separate cell type (track, drawn lighter), so roads are not widened; a building touching an existing
+      track shares it (a track may cross other plots' yards and is carved at tick 0 even for a building finished later). Left: the access rule for any new building; shops and the hall may get several doors; routines walk
+      door to door; a track that carries enough traffic becomes a road.
+- [~] **Lots and outbuildings:** done: the layout claims a plot per building (footprint plus a yard that is deeper toward
+      the edge of town, some left vacant), a home grows only inside its plot, the map draws plots (a Plots mark);
+      nearly all of the district is plotted out at tick 0 (about 9% is left where zone bands meet; tiny plots downtown, larger outward, huge ones in the country, tiled in aligned
+      blocks), farmsteads on a few of the huge plots reached by a track; some plots are cleared at tick 0 and built on
+      later (`builtWeek`, spread over a few centuries; empty and not growing until then).
+      Left, below: subdivision of plots as the town densifies, replacement, outbuildings, ownership. A lot is a parcel (cells, an owner later) that holds a main dwelling and any outbuildings
       (garage, shed, barn, workshop: no residents, own kind, own footprint). Growth happens inside the lot (its yard is
       the buffer, replacing the "never touch another building" rule); a lot has road access (footpath) or a lane.
       A building stays inside its lot (growth is bounded by the plot, not only by neighbors); going past it means
@@ -78,7 +85,7 @@ progression through ages, all deterministic from the seed. You watch and inspect
       Town lots are small; lots outside the town are large (a farmstead, a cabin in the woods, an estate), so people
       live beyond the built-up edge and the district map shows scattered holdings. Ownership, rent and tax attach to
       lots. Paths: outbuildings must not shift existing `d<n>` indexes (appended after, or their own `o<n>` segment).
-      Needs footpaths first; a building holding several units (units per building) is still a separate step.
+      A building holding several units (units per building) is a separate step.
       Plot lifecycle over the ages: early on, large plots outside the town (farms, steadings) and small ones downtown
       (shops, apartments); as the town ages plots are subdivided, more buildings go in, and old low buildings are
       replaced by denser ones under the age's zoning (the catalog decides what replaces what, and which plots
@@ -115,15 +122,17 @@ progression through ages, all deterministic from the seed. You watch and inspect
       height number or shading on the map, with units stacked per floor. A building holds several households; capacity
       and vacancy are per unit; a person gets a unit number beside their dwelling (paths and identity unchanged).
       Needs housing capacity first.
-- [ ] **New buildings (next; matters more than growing existing ones):** measured over 100 years: 323 of 328 full homes
-      are boxed in (no free cell that touches them, leaves no pocket and stays clear of neighbors), so room is the
-      limit and extensions run dry. A pure fold step: when homes stay full or vacancy is nil, a new building is placed
-      on free ground that touches a street (or a footpath from one), picked by a deterministic scan with a roll from
-      (week, district); it gets the next index (appended: existing `d<n>` paths never move), a `builtTick`, and its
-      first residents are the household that was pushed out. The map shows buildings that do not exist yet as
-      absent. Needs the `SiteLifeSeed` grid and `occ` bitmap the growth pass already keeps, and a kind chooser
-      (homes mostly; shops and works by need later, with the age catalog). Replaces most extension growth as the way
-      a town gets bigger.
+- [~] **New buildings (matters more than growing existing ones):** done: part of the plots are built on only later, on a
+      schedule fixed at layout (the building exists in the list from the start with a `builtWeek`; the map hides it
+      until then), and the households that arrive or found a home fill it. Left: new buildings that respond to need
+      (full homes, no vacancy) instead of a fixed schedule, placed by a deterministic scan with a roll from (week,
+      district) and appended (existing `d<n>` never move); a kind chooser by need (shops and works, with the age
+      catalog); growth that continues once every plot is used (infill, subdivision, land beyond the town).
+- [ ] **Resource-driven land use:** what a settlement farms or works comes from the planet map cells around it (soil and
+      water for grain and animals, forest for timber, ore for mines), not a fixed share. Most towns start with farms of
+      their own; one becomes a farm town where the farms take over the district, another drops most of its farms because
+      it sits in forest and lives off that. A plot's open squares are then industry ground (grain, pasture, trees), not
+      just a yard: farm plots show their crop, and a plot is rezoned as the economy moves.
 - [ ] **Founding dates and growth:** every settlement gets a `founded` tick (negative = already existed, so old towns
       are more built-out at tick 0; positive = appears later) and every building a `builtTick` from the town's plan
       order and a growth curve. People only live in buildings that exist, so households found new homes and
@@ -231,6 +240,15 @@ progression through ages, all deterministic from the seed. You watch and inspect
       a directed pass. Cost is area x detail / speed, so upgrades divide the time and endgame is the same job
       finishing in one tick: click a planet, then a person. The wandering scout is a pure function of (seed, unit,
       tick), so only player orders add state (an order log, position derived from it) and waiting is free.
+- [ ] **Case objectives (what the better view is for):** the upgrades are the means; the goal is a case to solve: find a
+      specific person, a household, a place, or the cause of something, before the clock runs out (the person dies, the
+      trail goes cold, the settlement changes). The deadline comes from the life model, so it is real and deterministic:
+      `genRecord(path, tick)` already answers "who was where when". Families and households are the interesting level,
+      so the endgame view resolves people; early views see only land and places. Cases are generated from the seed
+      (a target path plus clues that need a given detail tier), never changing what the world generates.
+- [ ] **Scenarios:** hand-built or generated starting situations (a case, a settlement in trouble, a famine year, a lost
+      person) that pick a seed, a starting tick, instrument tier and objective, so the sandbox can be played as
+      one-off puzzles as well as an open watch. A scenario is data (seed, path, tick, tier, goal), not new rules.
 - [ ] Planted-vs-found loop: scans produce findings, a report scores them
       against ground truth (missed / extra / echoes), reusing the Status / Results / Record tabs
 - [ ] Scan cost (time or resources) tied to resolution and coverage

@@ -76,9 +76,25 @@ export interface DwellingSummary {
   capacity: number;
   /** Cells a home has grown into beyond its rectangle (x, y, w, h), one cell at a time. */
   extra?: { x: number; y: number }[];
+  /** Index into the district's `plots` of the parcel it stands on (-1 for the hall). */
+  plot: number;
   /** The entrance: an edge cell of the original rectangle and the side it faces (0 north, 1 east, 2 south, 3 west). */
   door: { x: number; y: number; side: number };
+  /** The week it is finished (0: standing from the start). Until then the plot is cleared and nobody lives there. */
+  builtWeek: number;
+  /** Whether it stands now (set from the running district; at tick 0, `builtWeek === 0`). */
+  built: boolean;
   inspected: boolean;
+}
+
+/** A parcel of ground in a district: one building stands on it with its yard, or it is vacant. */
+export interface PlotSummary {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Index into the district's `dwellings` of what stands there, -1 while vacant. */
+  dwelling: number;
 }
 
 export interface SystemSummary {
@@ -133,9 +149,10 @@ export interface SiteView {
   bodyKind: BodyKind;
   w: number;
   h: number;
-  /** 0 ground, 1 road, 2 plaza, 3 green, 4 water (see CELL in town.ts) */
+  /** 0 ground, 1 road, 2 plaza, 3 green, 4 water, 5 track (see CELL in town.ts) */
   cells: Uint8Array;
   dwellings: DwellingSummary[];
+  plots: PlotSummary[];
   dayLength: number;
   lon: number; // 0..1 position around the body, used for local time
   population: number;

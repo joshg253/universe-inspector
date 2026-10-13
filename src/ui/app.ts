@@ -109,7 +109,8 @@ function marksFor(v: View): MarkDef[] {
   for (const c of v.cells) if (c === 1) roads++;
   return [
     { key: 'site.roads', glyph: '▬', cls: 'g-road', word: 'mark.roads', count: roads },
-    { key: 'site.dwellings', glyph: '■', cls: 'g-dwell', word: 'mark.dwellings', count: v.dwellings.length },
+    { key: 'site.lots', glyph: '▢', cls: 'g-dwell', word: 'mark.lots', count: v.plots.length },
+    { key: 'site.dwellings', glyph: '■', cls: 'g-dwell', word: 'mark.dwellings', count: v.dwellings.filter((d) => d.built).length },
     {
       key: 'site.residents',
       glyph: '•',
@@ -521,7 +522,8 @@ export function startApp(root: HTMLElement): void {
         inspected: v.sites.filter((s) => s.inspected).length + a.filter((x) => x.inspected).length,
       };
     }
-    return { total: v.dwellings.length, inspected: v.dwellings.filter((d) => d.inspected).length };
+    const here = v.dwellings.filter((d) => d.built);
+    return { total: here.length, inspected: here.filter((d) => d.inspected).length };
   };
 
   /** Chart time axis: days at first, then years. 1 tick = 1 hour. */
@@ -631,7 +633,7 @@ export function startApp(root: HTMLElement): void {
       }
     } else {
       section(t('list.dwellings'));
-      for (const d of v.dwellings) {
+      for (const d of v.dwellings.filter((x) => x.built)) {
         const res = state.features.inhabitants ? ` · ${d.residents}` : '';
         row(d.path, nm('dwelling', d.nameKey, d.kind), `${t(`dwelling.${d.kind}`)}${res}${d.inspected ? ' · ✓' : ''}`);
       }
@@ -689,7 +691,7 @@ export function startApp(root: HTMLElement): void {
       lines.push('Double-click a site to zoom into its district.');
     } else {
       const residents = v.dwellings.reduce((n, d) => n + d.residents, 0);
-      lines.push(`District grid ${v.w} × ${v.h} cells with ${v.dwellings.length} dwellings.`);
+      lines.push(`District grid ${v.w} × ${v.h} cells with ${v.dwellings.filter((d) => d.built).length} dwellings.`);
       lines.push(`Population ${residents.toLocaleString()}. Lit windows follow local solar time.`);
       lines.push('Double-click a dwelling to open its record.');
     }

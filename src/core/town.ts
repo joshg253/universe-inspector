@@ -4,7 +4,7 @@ import { makeNoise, type Rng } from './rng';
 import type { BodyKind, DwellingKind, SizeClass, TownStyle } from './types';
 
 /** Cell codes of the district grid. Buildings are not in the grid; they are listed separately. */
-export const CELL = { ground: 0, road: 1, plaza: 2, green: 3, water: 4 } as const;
+export const CELL = { ground: 0, road: 1, plaza: 2, green: 3, water: 4, track: 5 } as const;
 
 export interface TownBuilding {
   x: number;
@@ -13,14 +13,29 @@ export interface TownBuilding {
   h: number;
   kind: DwellingKind;
   residents: number;
+  /** Index into `TownLayout.plots` of the plot it stands on (-1 for the hall). */
+  plot: number;
   /** The entrance: a cell of the building's rectangle on its edge, and which side it faces (0 north, 1 east, 2 south, 3 west). */
   door: { x: number; y: number; side: number };
+  /** The week it is finished: 0 stands from the start, later is a plot cleared and built on as the years go. */
+  built: number;
+}
+
+/** A parcel of ground: one building stands on it (with its yard), or none yet. Parcels never overlap. */
+export interface TownPlot {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Index into `TownLayout.buildings` of what stands there, -1 while vacant. */
+  building: number;
 }
 
 export interface TownLayout {
   style: TownStyle;
   cells: Uint8Array;
   buildings: TownBuilding[];
+  plots: TownPlot[];
 }
 
 const STYLE_WEIGHTS: Record<SizeClass, Record<TownStyle, number>> = {
@@ -39,7 +54,7 @@ const FOOTPRINTS: [number, number, number][] = [
   [2, 1, 6],
 ];
 
-const DENSITY: Record<SizeClass, number> = { small: 0.55, medium: 0.75, large: 0.9 };
+const DENSITY: Record<SizeClass, number> = { small: 0.5, medium: 0.65, large: 0.8 };
 const HALL: Record<SizeClass, [number, number]> = { small: [3, 3], medium: [4, 3], large: [4, 4] };
 
 export function layoutTown(N: number, size: SizeClass, population: number, bodyKind: BodyKind, r: Rng): TownLayout {
@@ -196,22 +211,25 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
   const hy = cy - Math.floor(hh / 2);
   const ring = size === 'large' ? 2 : 1;
   for (let y = hy - ring; y < hy + hh + ring; y++) for (let x = hx - ring; x < hx + hw + ring; x++) put(x, y, CELL.plaza, false);
-  const buildings: TownBuilding[] = [{ x: hx, y: hy, w: hw, h: hh, kind: 'hall', residents: (r.int(0, 2), 0), door: { x: 0, y: 0, side: 0 } }]; // the draw is kept so every later one is unchanged
+  const buildings: TownBuilding[] = [{ x: hx, y: hy, w: hw, h: hh, kind: 'hall', residents: (r.int(0, 2), 0), plot: -1, door: { x: 0, y: 0, side: 0 }, built: 0 }]; // the draw is kept so every later one is unchanged
   for (let y = hy; y < hy + hh; y++) for (let x = hx; x < hx + hw; x++) occ[y * N + x] = 1;
 
-  // ---- buildings along the streets
-  const canPlace = (bx: number, by: number, w: number, h: number): boolean => {
-    for (let y = by; y < by + h; y++) {
-      for (let x = bx; x < bx + w; x++) {
-        if (!inB(x, y) || cells[y * N + x] !== CELL.ground || occ[y * N + x] || dist(x, y) > R + 1.5) return false;
-      }
-    }
-    return true;
-  };
-  const place = (bx: number, by: number, w: number, h: number) => {
+  // ---- the whole district is plotted out: tiny plots downtown, larger toward the edge, huge ones beyond the town
+  // Land is claimed in order of distance from the center, each plot sized by where it lies. Then each plot gets a building
+  // (more often downtown), is cleared for one that comes later, or stays vacant; huge plots out in the country may hold a
+  // farmstead. A building stands in the corner of its plot nearest the center, the rest of the plot is its yard.
+  const plots: TownPlot[] = [];
+  const owned = new Uint8Array(N * N); // 1 where a plot lies
+  const farmSet = new Set<TownBuilding>();
+  const claim = (px: number, py: number, pw: number, ph: number, bx: number, by: number, w: number, h: number, vacant: boolean, built = 0) => {
+    for (let y = py; y < py + ph; y++) for (let x = px; x < px + pw; x++) owned[y * N + x] = 1;
+    plots.push({ x: px, y: py, w: pw, h: ph, building: -1 });
+    if (vacant) return;
     for (let y = by; y < by + h; y++) for (let x = bx; x < bx + w; x++) occ[y * N + x] = 1;
-    buildings.push({ x: bx, y: by, w, h, kind: 'home', residents: 0, door: { x: bx, y: by, side: 0 } });
+    buildings.push({ x: bx, y: by, w, h, kind: 'home', residents: 0, plot: plots.length - 1, door: { x: bx, y: by, side: 0 }, built });
   };
+  /** When a building that is not there yet gets built: any year from the second on, most within a few centuries. */
+  const buildWeek = () => 52 * (2 + Math.floor(-Math.log(1 - r.range(0, 0.99)) * 140));
   const footprint = (): [number, number] => {
     const total = FOOTPRINTS.reduce((n, f) => n + f[2], 0);
     let t = r.range(0, total);
@@ -222,46 +240,82 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
     return [2, 2];
   };
   const dens = DENSITY[size];
-  const along: { x: number; y: number; k: number }[] = [];
-  for (let y = 0; y < N; y++) {
-    for (let x = 0; x < N; x++) {
-      const v = cells[y * N + x];
-      if (v === CELL.road || v === CELL.plaza) along.push({ x, y, k: dist(x, y) + r.range(0, 2.5) });
+  // Tiling: aligned blocks whose size grows with distance from the center (no draws); inside a block the free ground is
+  // claimed row by row as rectangles. Slivers under 2 cells stay common ground.
+  const ZONES: [number, number, number][] = [[0.45, 3, 3], [0.8, 4, 3], [1.15, 5, 4], [2, 8, 6], [Infinity, 14, 10]];
+  const rects: { x: number; y: number; w: number; h: number; k: number }[] = [];
+  const spare = (x: number, y: number) => inB(x, y) && cells[y * N + x] === CELL.ground && !occ[y * N + x] && !owned[y * N + x];
+  let lower = 0;
+  for (const [upTo, bw, bh] of ZONES) {
+    const lo = lower * R;
+    const hi = upTo * R;
+    lower = upTo;
+    for (let by = 0; by < N; by += bh) {
+      for (let bx = 0; bx < N; bx += bw) {
+        const d = dist(bx + bw / 2, by + bh / 2);
+        if (d < lo || d >= hi) continue;
+        const ex = Math.min(N, bx + bw);
+        const ey = Math.min(N, by + bh);
+        for (let y = by; y < ey; y++) {
+          for (let x = bx; x < ex; x++) {
+            if (!spare(x, y)) continue;
+            let w = 1;
+            while (x + w < ex && spare(x + w, y)) w++;
+            let h = 1;
+            for (let more = true; more && y + h < ey; ) {
+              for (let xx = x; xx < x + w; xx++) if (!spare(xx, y + h)) more = false;
+              if (more) h++;
+            }
+            if (w < 2 || h < 2) continue;
+            for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) owned[yy * N + xx] = 1;
+            rects.push({ x, y, w, h, k: dist(x + w / 2, y + h / 2) });
+          }
+        }
+      }
     }
   }
-  along.sort((a, b) => a.k - b.k);
-  for (const { x, y } of along) {
-    const d = dist(x, y);
-    if (d > R + 2) continue;
-    const p = Math.max(0.12, Math.min(0.97, dens * (1.05 - 0.5 * (d / R))));
-    // Fisher-Yates with the seeded rng. Never an rng inside a sort comparator: engines call comparators in
-    // different orders, so the same seed would give different towns in Node and in the browser.
-    const sides = [0, 1, 2, 3];
-    for (let i = sides.length - 1; i > 0; i--) {
-      const j = r.int(0, i);
-      [sides[i], sides[j]] = [sides[j]!, sides[i]!];
+  owned.fill(0); // claim() sets it again, plot by plot, in the order the buildings are decided
+  rects.sort((p, q) => p.k - q.k);
+  let farmsLeft = 3 + Math.round(R * 0.9);
+  for (const { x, y, w: pw, h: ph, k: d } of rects) {
+    const inTown = d < R + 2;
+    let build = false;
+    let farm = false;
+    let later = 0;
+    if (inTown) {
+      const p = Math.max(0.12, Math.min(0.97, dens * (1.05 - 0.5 * Math.min(1, d / R))));
+      if (r.chance(p)) {
+        build = true;
+        if (r.chance(0.35)) later = buildWeek();
+      } else if (r.chance(0.5)) {
+        build = true; // cleared now, built on some years on
+        later = buildWeek();
+      }
+    } else if (farmsLeft > 0 && pw * ph >= 30 && r.chance(0.3)) {
+      build = true;
+      farm = true;
+      farmsLeft--;
     }
-    for (const side of sides) {
-      if (!r.chance(p)) continue;
-      const [w, h] = footprint();
-      const bx = side === 2 ? x - w : side === 3 ? x + 1 : x - r.int(0, w - 1);
-      const by = side === 0 ? y - h : side === 1 ? y + 1 : y - r.int(0, h - 1);
-      if (canPlace(bx, by, w, h)) place(bx, by, w, h);
+    if (!build) {
+      claim(x, y, pw, ph, x, y, 0, 0, true);
+      continue;
     }
-  }
-  // Back lots: small houses behind the street frontage.
-  for (let y = 1; y < N - 1; y += 2) {
-    for (let x = 1; x < N - 1; x += 2) {
-      const d = dist(x, y);
-      if (d > R || !r.chance(dens * 0.55 * (1 - d / (R + 1)))) continue;
-      const [w, h] = r.chance(0.7) ? [2, 2] : [2, 1];
-      if (canPlace(x, y, w, h)) place(x, y, w, h);
-    }
+    const [fw, fh] = farm ? [r.chance(0.5) ? 2 : 3, r.chance(0.6) ? 2 : 3] : footprint();
+    const w = Math.min(fw, pw);
+    const h = Math.min(fh, ph);
+    const bx = Math.max(x, Math.min(x + pw - w, Math.round(c - w / 2)));
+    const by = Math.max(y, Math.min(y + ph - h, Math.round(c - h / 2)));
+    claim(x, y, pw, ph, bx, by, w, h, false, later);
+    if (farm) farmSet.add(buildings[buildings.length - 1]!);
   }
 
   // ---- what the buildings are, and who lives in them
   for (const b of buildings) {
     if (b.kind === 'hall') continue;
+    if (farmSet.has(b)) {
+      b.residents = b.built > 0 ? 0 : Math.min(r.int(2, 5), 2 + Math.floor((b.w * b.h) / 2)); // a farmstead's household, within capacity
+      continue;
+    }
     const area = b.w * b.h;
     const d = Math.min(1, dist(b.x + b.w / 2, b.y + b.h / 2) / R);
     b.kind = r.weighted({
@@ -275,8 +329,8 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
         : b.kind === 'shop'
           ? r.int(0, 2) // the keeper's household lives above the shop
           : (r.int(0, 3), 0); // works and the hall are workplaces; nobody lives there (draw kept, see above)
+    if (b.built > 0) b.residents = 0; // nobody lives in what is not built yet
   }
-  buildings.sort((a, b) => a.y - b.y || a.x - b.x);
 
   // ---- gardens inside the town, fields outside it
   for (let y = 0; y < N; y++) {
@@ -289,9 +343,10 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
 
   // ---- footpaths and entrances. No draws: a pure walk over the finished town, so everything above is unchanged.
   const SIDES: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // north, east, south, west
-  const free = (x: number, y: number) =>
+  const open = (x: number, y: number) =>
     inB(x, y) && !occ[y * N + x] && (cells[y * N + x] === CELL.ground || cells[y * N + x] === CELL.green);
-  const isStreet = (x: number, y: number) => inB(x, y) && (cells[y * N + x] === CELL.road || cells[y * N + x] === CELL.plaza);
+  const isStreet = (x: number, y: number) =>
+    inB(x, y) && (cells[y * N + x] === CELL.road || cells[y * N + x] === CELL.plaza || cells[y * N + x] === CELL.track);
   /** The edge cells of a rectangle with the cell outside each, in a fixed scan order (north, east, south, west). */
   const edgeCells = (b: TownBuilding) => {
     const out: { x: number; y: number; side: number; ox: number; oy: number }[] = [];
@@ -304,7 +359,7 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
   // A building with no street cell beside it gets the shortest run of free cells to the nearest street (at most 40): over
   // land if any run exists, else with a bridge over the river (roads already cross it).
   const FLOOD = (b: TownBuilding, bridge: boolean): number[] | null => {
-    const walk = (x: number, y: number) => free(x, y) || (bridge && inB(x, y) && !occ[y * N + x] && cells[y * N + x] === CELL.water);
+    const walk = (x: number, y: number) => open(x, y) || (bridge && inB(x, y) && !occ[y * N + x] && cells[y * N + x] === CELL.water);
     const parent = new Map<number, number>();
     let frontier: number[] = [];
     for (const e of edgeCells(b)) {
@@ -339,19 +394,22 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
   for (const b of buildings) {
     if (edgeCells(b).some((e) => isStreet(e.ox, e.oy))) continue;
     const run = FLOOD(b, false) ?? FLOOD(b, true);
-    if (run) for (const k of run) cells[k] = CELL.road;
+    if (run) for (const k of run) cells[k] = CELL.track; // a footpath or cart track, not a street: roads are not widened
   }
   // One that no path reaches (walled in by its neighbors) is not built.
   for (let i = buildings.length - 1; i >= 0; i--) {
     if (!edgeCells(buildings[i]!).some((e) => isStreet(e.ox, e.oy))) buildings.splice(i, 1);
   }
+  buildings.forEach((b, i) => {
+    if (b.plot >= 0) plots[b.plot]!.building = i;
+  });
   // The entrance: the first edge cell facing the plaza, else the first facing a road, else the first facing open ground.
   for (const b of buildings) {
     const edge = edgeCells(b);
     const at = (e: { ox: number; oy: number }) => (inB(e.ox, e.oy) ? cells[e.oy * N + e.ox] : -1);
-    const pick = edge.find((e) => at(e) === CELL.plaza) ?? edge.find((e) => at(e) === CELL.road) ?? edge.find((e) => inB(e.ox, e.oy)) ?? edge[0]!;
+    const pick = edge.find((e) => at(e) === CELL.plaza) ?? edge.find((e) => at(e) === CELL.road) ?? edge.find((e) => at(e) === CELL.track) ?? edge.find((e) => inB(e.ox, e.oy)) ?? edge[0]!;
     b.door = { x: pick.x, y: pick.y, side: pick.side };
   }
 
-  return { style, cells, buildings };
+  return { style, cells, buildings, plots };
 }

@@ -74,6 +74,7 @@ export const BASE_WORDS: Record<string, string> = {
   'mark.anomalies': 'Anomalies',
   'mark.roads': 'Roads',
   'mark.dwellings': 'Dwellings',
+  'mark.lots': 'Plots',
   'mark.residents': 'Residents',
 
   'field.star': 'Star',
