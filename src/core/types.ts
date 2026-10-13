@@ -48,6 +48,7 @@ export interface SiteSummary {
   x: number;
   y: number;
   size: SizeClass;
+  /** On a planet list: the people its district holds at tick 0. (Only the layout generator sees the notional size.) */
   population: number;
   inspected: boolean;
 }

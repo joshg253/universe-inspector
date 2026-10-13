@@ -690,7 +690,7 @@ export function startApp(root: HTMLElement): void {
     } else {
       const residents = v.dwellings.reduce((n, d) => n + d.residents, 0);
       lines.push(`District grid ${v.w} × ${v.h} cells with ${v.dwellings.length} dwellings.`);
-      lines.push(`Settlement population ${v.population.toLocaleString()}; ${residents} residents are generated here. Lit windows follow local solar time.`);
+      lines.push(`Population ${residents.toLocaleString()}. Lit windows follow local solar time.`);
       lines.push('Double-click a dwelling to open its record.');
     }
     for (const l of lines) infoBox.append(h('div', null, l));

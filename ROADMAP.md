@@ -26,9 +26,9 @@ progression through ages, all deterministic from the seed. You watch and inspect
 ## Known issues / tuning
 
 - [ ] Settlements can sit right on a shoreline of a world with water; nudge placement inland (changes generation)
-- [ ] Planet-level settlement lists show the generated population, not the live one
-- [ ] A district's population can exceed the people shown: the count keeps the unmodeled remainder when the modeled
-      residents die out (show it as its own line, or count simulated people only)
+- [ ] Planet-level settlement lists show the tick-0 population, not the live one
+- [ ] Towns hold 5 to 180 people (a district is 64x64 cells, at most 10 per building) while the size labels (city,
+      metropolis) come from the notional generated size; bigger towns need a bigger or coarser district
 - [ ] Phone/narrow layout is only a stacked fallback, not tuned for touch
 - [ ] Status and Record tabs don't react to selection (Results does)
 - [ ] Open on the universe level instead of system 0?

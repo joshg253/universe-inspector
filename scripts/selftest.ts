@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
 import { orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
-import { SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, residenceAt } from '../src/core/life';
+import { SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, residenceAt, applyLife } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
 import { rngFor } from '../src/core/rng';
@@ -361,6 +361,35 @@ assert.equal(viewLevel('s1/b2'), 'body');
     assert.ok(arrivedKids > 0, 'households with children arrive');
     assert.ok(arrivedKidsMoved > 0, 'children who arrived with a household can leave home and found their own');
     assert.ok(end > start * 0.6 && end < start * 1.6, `population after a century: ${start} -> ${end}`);
+  }
+
+  // One population: a settlement's number is the people its district holds, on the planet list, in the district view
+  // and in its record, at tick 0 and after any time (no unmodeled remainder).
+  {
+    let checked = 0;
+    for (let si = 0; si < 3; si++) {
+      for (const sbi of settledBodyIndexes(seed, si)) {
+        const listed = genBody(seed, si, sbi, new DeltaStore()).sites;
+        for (const s of bodySites(seed, si, sbi)) {
+          const dd = siteLifeSeed(seed, si, sbi, s.index);
+          const l = new SiteLife(seed, dd);
+          const view = genSite(seed, si, sbi, s.index, new DeltaStore());
+          assert.equal(view.population, l.initial, 'the settlement number is the people at tick 0');
+          assert.equal(listed[s.index]!.population, view.population, 'the planet list shows the same number');
+          const rec0 = genRecord(seed, s.path, new DeltaStore());
+          assert.equal(rec0.fields.find((f) => f.label === 'population')!.value, view.population);
+          l.advanceTo(52 * 150);
+          const rec = genRecord(seed, s.path, new DeltaStore(), { tick: l.week * TICKS_PER_WEEK, life: l });
+          const f = (k: string) => rec.fields.find((x) => x.label === k)!.value;
+          assert.equal(f('population'), f('residents'), 'population equals the residents shown, after any time');
+          const applied = applyLife(view, l);
+          assert.equal(applied.population, l.living);
+          assert.equal(applied.dwellings.reduce((n, x) => n + x.residents, 0), applied.population, 'the residents shown add up to the population');
+          checked++;
+        }
+      }
+    }
+    assert.ok(checked > 5, 'some settlements checked');
   }
 
   // Housing capacity and growth: nobody starts or lives in a home past its footprint; homes only ever grow, one cell at

@@ -328,7 +328,11 @@ export function genBody(seed: string, si: number, bi: number, deltas: DeltaStore
     h: BODY_H,
     cells: core.cells,
     dayLength: core.meta.dayLength,
-    sites: core.sites.map((s) => ({ ...s, inspected: deltas.isInspected(s.path) })),
+    sites: core.sites.map((s) => ({
+      ...s,
+      population: siteCore(seed, si, bi, s.index).population,
+      inspected: deltas.isInspected(s.path),
+    })),
     anomalies: core.anomalies.map((a) => ({ ...a, inspected: deltas.isInspected(a.path) })),
   };
 }
@@ -341,6 +345,8 @@ interface SiteCore {
   cells: Uint8Array;
   dwellings: Base<DwellingSummary>[];
   style: TownStyle;
+  /** The people the district holds at tick 0. The generated `site.population` only sizes the layout. */
+  population: number;
 }
 
 const siteCache = new Map<string, SiteCore>();
@@ -366,7 +372,8 @@ function siteCore(seed: string, si: number, bi: number, ti: number): SiteCore {
         capacity: b.kind === 'home' || b.kind === 'shop' ? capacityOf(b.w * b.h) : 0,
       };
     });
-    return { body, site, cells: layout.cells, dwellings, style: layout.style };
+    const population = dwellings.reduce((n, d) => n + d.residents, 0);
+    return { body, site, cells: layout.cells, dwellings, style: layout.style, population };
   });
 }
 
@@ -390,7 +397,7 @@ export function genSite(seed: string, si: number, bi: number, ti: number, deltas
     dwellings: core.dwellings.map((d) => ({ ...d, inspected: deltas.isInspected(d.path) })),
     dayLength: body.meta.dayLength,
     lon: site.x / BODY_W,
-    population: site.population,
+    population: core.population,
     size: site.size,
     style: core.style,
   };
@@ -557,13 +564,13 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
         fields: [
           { label: 'size', value: sc.site.size, vocab: 'size' },
           { label: 'layout', value: sc.style, vocab: 'layout' },
-          num('population', life ? Math.max(0, sc.site.population + life.net) : sc.site.population),
+          num('population', life ? life.living : sc.population),
           num('dwellings', sc.dwellings.length),
           num('residents', residents, 'inhabitants'),
           ...(life ? [num('births', life.totals.births, 'inhabitants'), num('deaths', life.totals.deaths, 'inhabitants')] : []),
         ],
         children: [],
-        charts: life ? [{ label: 'population', points: livingSeries(life, null, sc.site.population - life.initial) }] : undefined,
+        charts: life ? [{ label: 'population', points: livingSeries(life, null) }] : undefined,
       };
     }
     case 'd': {
