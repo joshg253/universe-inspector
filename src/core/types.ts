@@ -76,6 +76,8 @@ export interface DwellingSummary {
   capacity: number;
   /** Cells a home has grown into beyond its rectangle (x, y, w, h), one cell at a time. */
   extra?: { x: number; y: number }[];
+  /** The entrance: an edge cell of the original rectangle and the side it faces (0 north, 1 east, 2 south, 3 west). */
+  door: { x: number; y: number; side: number };
   inspected: boolean;
 }
 

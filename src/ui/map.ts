@@ -566,6 +566,17 @@ export class MapCanvas {
         ctx.strokeStyle = 'rgba(0,0,0,0.55)';
         ctx.lineWidth = 1;
         outline(ctx, cells, X, Y, 0.5);
+        if (s >= 5) {
+          // The entrance: a short light bar across the middle of the edge cell it faces.
+          const { x, y, side } = d.door;
+          const t = Math.max(2, s * 0.25);
+          const len = s * 0.5;
+          ctx.fillStyle = 'rgba(255,244,200,0.95)';
+          if (side === 0) ctx.fillRect(X(x) + (s - len) / 2, Y(y) - t / 2, len, t);
+          else if (side === 2) ctx.fillRect(X(x) + (s - len) / 2, Y(y + 1) - t / 2, len, t);
+          else if (side === 3) ctx.fillRect(X(x) - t / 2, Y(y) + (s - len) / 2, t, len);
+          else ctx.fillRect(X(x + 1) - t / 2, Y(y) + (s - len) / 2, t, len);
+        }
       }
     }
 

@@ -369,6 +369,7 @@ function siteCore(seed: string, si: number, bi: number, ti: number): SiteCore {
         w: b.w,
         h: b.h,
         residents: b.residents,
+        door: b.door,
         capacity: b.kind === 'home' || b.kind === 'shop' ? capacityOf(b.w * b.h) : 0,
       };
     });

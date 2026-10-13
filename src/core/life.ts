@@ -25,6 +25,8 @@ export function capacityOf(cells: number): number {
 const CROWDED_LEAVE = 4;
 /** A home full for this many weeks in a row takes one more cell of free ground beside it. */
 const EXPAND_AFTER_WEEKS = 13;
+/** A home that took a cell finishes any notch in its outline at one cell per this many weeks, full or not. */
+const FINISH_EVERY_WEEKS = 4;
 /** The largest a home grows: 16 cells, where capacity reaches its cap of 10. */
 const MAX_HOME_AREA = 16;
 /** District grid codes a home may grow onto (CELL.ground, CELL.green in town.ts); roads, plaza and water stay. */
@@ -191,6 +193,8 @@ export class SiteLife {
   private readonly fullWeeks: number[];
   /** Homes that cannot grow any more (no free cell, or at the size cap): never tried again, since cells only fill. */
   private readonly boxedIn: boolean[];
+  /** Weeks until a home that just grew fills the next notch of its outline (0: none pending). */
+  private readonly finish: number[];
 
   constructor(seed: string, data: SiteLifeSeed) {
     this.base = hash32(`${seed}|${data.path}|life`);
@@ -204,6 +208,7 @@ export class SiteLife {
     for (const d of data.dwellings) this.paintRect(d);
     this.fullWeeks = data.dwellings.map(() => 0);
     this.boxedIn = data.dwellings.map(() => false);
+    this.finish = data.dwellings.map(() => 0);
     data.dwellings.forEach((d, di) => this.populate(di, d.kind, d.residents));
     this.initial = this.people.length;
   }
@@ -367,13 +372,13 @@ export class SiteLife {
   }
 
   /**
-   * Add one cell to a full home: a free ground or garden cell that touches it on a side and no other building at all.
-   * The shape stays compact: a cell that would leave a pocket (an outside cell closed in on three sides by the building) is
-   * never taken, and cells that touch the building on two or more sides (filling a corner or a notch) come first.
-   * The candidates are listed in a fixed scan order and one is rolled from (week, dwelling). Homes are processed in
-   * index order, so the earlier one wins a cell both want. Returns whether it grew.
+   * Add one cell to a home (a full one, or with `notchOnly` one finishing its outline): a free ground or garden cell that touches it on a side and no other building at all.
+   * The shape stays compact: a cell that would close an open cell in on three sides (by this home or any other building)
+   * is never taken, and the rest are ranked: a cell inside the home's bounding box (a notch) first, otherwise the one that
+   * leaves the box most square, then least widened, then most sides touched. One of the best is rolled from (week, dwelling). Homes are
+   * processed in index order, so the earlier one wins a cell both want. Returns whether it grew.
    */
-  private expand(d: number, week: number): boolean {
+  private expand(d: number, week: number, notchOnly = false): boolean {
     if (this.area[d]! >= MAX_HOME_AREA) return false;
     const n = this.grid.n;
     const own = this.origin[d]!;
@@ -390,35 +395,63 @@ export class SiteLife {
         if (!mine.has(nk) && !this.occ[nk] && FREE_CELLS.includes(this.grid.cells[nk]!) && !this.touchesOther(nk, mine)) cand.add(nk);
       }
     }
-    const sides = (k: number, set: Set<number>): number => {
+    const around = (k: number): number[] => {
       const x = k % n;
       const y = Math.floor(k / n);
-      let c = 0;
+      const out: number[] = [];
       for (const [nx, ny] of [[x, y - 1], [x - 1, y], [x + 1, y], [x, y + 1]] as const) {
-        if (nx >= 0 && ny >= 0 && nx < n && ny < n && set.has(ny * n + nx)) c++;
+        if (nx >= 0 && ny >= 0 && nx < n && ny < n) out.push(ny * n + nx);
       }
-      return c;
+      return out;
     };
-    const ranked: { k: number; s: number }[] = [];
-    for (const k of [...cand].sort((a, b) => a - b)) {
-      const after = new Set(mine).add(k);
+    // The bounding box of the home as it stands; a candidate is scored by how much it widens the box (not at all: it fills
+    // a notch), how square the box stays, and how many sides it touches.
+    let x0 = n;
+    let y0 = n;
+    let x1 = -1;
+    let y1 = -1;
+    for (const k of mine) {
+      x0 = Math.min(x0, k % n);
+      x1 = Math.max(x1, k % n);
+      y0 = Math.min(y0, Math.floor(k / n));
+      y1 = Math.max(y1, Math.floor(k / n));
+    }
+    const ranked: { k: number; g: number; s: number; a: number }[] = [];
+    for (const k of [...cand].sort((p, q) => p - q)) {
+      // A pocket is an open cell this one would close in on three sides, by the home itself or by any other building.
+      let pocket = false;
+      for (const f of around(k)) {
+        if (mine.has(f) || this.occ[f]) continue;
+        if (around(f).filter((q) => q === k || mine.has(q) || this.occ[q]).length >= 3) pocket = true;
+      }
+      if (pocket) continue;
       const x = k % n;
       const y = Math.floor(k / n);
-      let pocket = false;
-      for (const [nx, ny] of [[x, y - 1], [x - 1, y], [x + 1, y], [x, y + 1]] as const) {
-        if (nx < 0 || ny < 0 || nx >= n || ny >= n) continue;
-        const f = ny * n + nx;
-        if (!after.has(f) && sides(f, after) >= 3) pocket = true;
-      }
-      if (!pocket) ranked.push({ k, s: sides(k, mine) });
+      const w = Math.max(x1, x) - Math.min(x0, x) + 1;
+      const h = Math.max(y1, y) - Math.min(y0, y) + 1;
+      ranked.push({
+        k,
+        g: w * h - (x1 - x0 + 1) * (y1 - y0 + 1),
+        s: around(k).filter((q) => mine.has(q)).length,
+        a: Math.max(w, h) / Math.min(w, h),
+      });
+    }
+    if (notchOnly) {
+      for (let i = ranked.length - 1; i >= 0; i--) if (ranked[i]!.g > 0) ranked.splice(i, 1);
     }
     if (ranked.length === 0) return false;
-    const best = Math.max(...ranked.map((r) => r.s));
-    const list = ranked.filter((r) => r.s === best).map((r) => r.k);
-    const pick = list[Math.floor(roll(this.base, week, d, 25) * list.length)]!;
+    // A cell inside the box (a notch) first; otherwise the one that leaves the box most square, then the one that widens it
+    // least, then the one touching most sides.
+    const order = (p: (typeof ranked)[number], q: (typeof ranked)[number]) =>
+      Number(p.g > 0) - Number(q.g > 0) || p.a - q.a || p.g - q.g || q.s - p.s || p.k - q.k;
+    ranked.sort(order);
+    const top = ranked[0]!;
+    const list = ranked.filter((r) => r.g === top.g && r.s === top.s && r.a === top.a).map((r) => r.k);
+    const pick = list[Math.floor(roll(this.base, week, d, notchOnly ? 26 : 25) * list.length)]!;
     this.extra[d]!.push({ x: pick % n, y: Math.floor(pick / n) });
     this.occ[pick] = 1;
     this.area[d]!++;
+    this.finish[d] = FINISH_EVERY_WEEKS;
     return true;
   }
 
@@ -566,9 +599,11 @@ export class SiteLife {
       }
     });
 
-    // A home that has stayed full extends into free ground beside it.
+    // A home that has stayed full extends into free ground beside it, and one that has grown finishes the notches of its outline.
     home.forEach((g, d) => {
       if (this.kinds[d] !== 'home') return;
+      // One cell a week at most: a home that finished a notch this week does not also take a full-home cell.
+      if (this.finish[d]! > 0 && --this.finish[d]! === 0 && this.expand(d, week, true)) return;
       if (g.length < this.capacity(d)) this.fullWeeks[d] = 0;
       else if (!this.boxedIn[d] && ++this.fullWeeks[d]! >= EXPAND_AFTER_WEEKS) {
         if (this.expand(d, week)) this.fullWeeks[d] = 0;
