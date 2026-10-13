@@ -367,9 +367,11 @@ export class SiteLife {
   }
 
   /**
-   * Add one cell to a full home: a free ground or garden cell that touches it on a side and no other building at all. The candidates are listed in
-   * a fixed scan order and one is rolled from (week, dwelling). Homes are processed in index order, so the earlier
-   * one wins a cell both want. Returns whether it grew.
+   * Add one cell to a full home: a free ground or garden cell that touches it on a side and no other building at all.
+   * The shape stays compact: a cell that would leave a pocket (an outside cell closed in on three sides by the building) is
+   * never taken, and cells that touch the building on two or more sides (filling a corner or a notch) come first.
+   * The candidates are listed in a fixed scan order and one is rolled from (week, dwelling). Homes are processed in
+   * index order, so the earlier one wins a cell both want. Returns whether it grew.
    */
   private expand(d: number, week: number): boolean {
     if (this.area[d]! >= MAX_HOME_AREA) return false;
@@ -388,8 +390,31 @@ export class SiteLife {
         if (!mine.has(nk) && !this.occ[nk] && FREE_CELLS.includes(this.grid.cells[nk]!) && !this.touchesOther(nk, mine)) cand.add(nk);
       }
     }
-    if (cand.size === 0) return false;
-    const list = [...cand].sort((a, b) => a - b);
+    const sides = (k: number, set: Set<number>): number => {
+      const x = k % n;
+      const y = Math.floor(k / n);
+      let c = 0;
+      for (const [nx, ny] of [[x, y - 1], [x - 1, y], [x + 1, y], [x, y + 1]] as const) {
+        if (nx >= 0 && ny >= 0 && nx < n && ny < n && set.has(ny * n + nx)) c++;
+      }
+      return c;
+    };
+    const ranked: { k: number; s: number }[] = [];
+    for (const k of [...cand].sort((a, b) => a - b)) {
+      const after = new Set(mine).add(k);
+      const x = k % n;
+      const y = Math.floor(k / n);
+      let pocket = false;
+      for (const [nx, ny] of [[x, y - 1], [x - 1, y], [x + 1, y], [x, y + 1]] as const) {
+        if (nx < 0 || ny < 0 || nx >= n || ny >= n) continue;
+        const f = ny * n + nx;
+        if (!after.has(f) && sides(f, after) >= 3) pocket = true;
+      }
+      if (!pocket) ranked.push({ k, s: sides(k, mine) });
+    }
+    if (ranked.length === 0) return false;
+    const best = Math.max(...ranked.map((r) => r.s));
+    const list = ranked.filter((r) => r.s === best).map((r) => r.k);
     const pick = list[Math.floor(roll(this.base, week, d, 25) * list.length)]!;
     this.extra[d]!.push({ x: pick % n, y: Math.floor(pick / n) });
     this.occ[pick] = 1;

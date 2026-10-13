@@ -441,6 +441,14 @@ assert.equal(viewLevel('s1/b2'), 'body');
               cells.add(key);
               added.push([i, c.x, c.y]);
             }
+            // No holes: no outside cell is closed in on three or more sides by the building.
+            for (const k of cells) {
+              for (const f of [k - 1, k + 1, k - n, k + n]) {
+                if (cells.has(f) || f < 0 || f >= n * n || Math.abs((f % n) - (k % n)) > 1) continue;
+                const around = [f - 1, f + 1, f - n, f + n].filter((q) => cells.has(q) && Math.abs((q % n) - (f % n)) <= 1).length;
+                assert.ok(around < 3, 'a grown home leaves no pocket');
+              }
+            }
             const xs = [...cells].map((k) => k % n);
             const ys = [...cells].map((k) => Math.floor(k / n));
             const bbox = (Math.max(...xs) - Math.min(...xs) + 1) * (Math.max(...ys) - Math.min(...ys) + 1);
