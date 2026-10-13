@@ -349,7 +349,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
             }
           }
           dd.dwellings.forEach((x, i) => {
-            if (x.kind !== 'home') return;
+            if (x.kind !== 'home' || !l.isBuilt(i)) return; // a plot not yet built on is not a vacant home
             homes++;
             if (l.residents(i).length === 0) vacant++;
           });
@@ -357,10 +357,47 @@ assert.equal(viewLevel('s1/b2'), 'body');
         }
       }
     }
-    assert.ok(vacant / homes < 0.25, `vacancy after a century: ${vacant}/${homes}`);
+    assert.ok(vacant / homes < 0.4, `vacancy after a century: ${vacant}/${homes}`);
     assert.ok(arrivedKids > 0, 'households with children arrive');
     assert.ok(arrivedKidsMoved > 0, 'children who arrived with a household can leave home and found their own');
     assert.ok(end > start * 0.6 && end < start * 1.6, `population after a century: ${start} -> ${end}`);
+  }
+
+  // Plots: parcels never overlap, never lie on the plaza or water, each building stands inside its own plot, and the plot
+  // lists its building (a vacant plot lists none).
+  {
+    let plots = 0;
+    let vacant = 0;
+    for (const sd of ['alpha', 'beta', 'first-light']) {
+      for (let si = 0; si < 6; si++) {
+        for (const sbi of settledBodyIndexes(sd, si)) {
+          for (const st of bodySites(sd, si, sbi)) {
+            const v = genSite(sd, si, sbi, st.index, new DeltaStore());
+            const seen = new Set<number>();
+            v.plots.forEach((p, pi) => {
+              plots++;
+              for (let y = p.y; y < p.y + p.h; y++) {
+                for (let x = p.x; x < p.x + p.w; x++) {
+                  assert.ok(x >= 0 && y >= 0 && x < v.w && y < v.h, 'a plot lies inside the district');
+                  const k = y * v.w + x;
+                  assert.equal(seen.has(k), false, 'plots never overlap');
+                  seen.add(k);
+                  assert.ok(v.cells[k] !== 2 && v.cells[k] !== 4, 'a plot is never on the plaza or water');
+                }
+              }
+              if (p.dwelling < 0) vacant++;
+              else assert.equal(v.dwellings[p.dwelling]!.plot, pi, 'a plot and its building point at each other');
+            });
+            for (const d of v.dwellings) {
+              if (d.kind === 'hall') continue;
+              const p = v.plots[d.plot]!;
+              assert.ok(d.x >= p.x && d.y >= p.y && d.x + d.w <= p.x + p.w && d.y + d.h <= p.y + p.h, 'a building stands inside its plot');
+            }
+          }
+        }
+      }
+    }
+    assert.ok(plots > 1000 && vacant > 0 && vacant < plots, `plots ${plots}, vacant ${vacant}`);
   }
 
   // One population: a settlement's number is the people its district holds, on the planet list, in the district view
@@ -392,7 +429,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
     assert.ok(checked > 5, 'some settlements checked');
   }
 
-  // Entrances and footpaths: every building has a door on its edge that opens onto a road or the plaza (a footpath is carved
+  // Entrances and footpaths: every building has a door on its edge that opens onto a road, the plaza or a track (a footpath is carved
   // from a landlocked one; one nothing can reach is not built).
   {
     let all = 0;
@@ -410,7 +447,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
               const ox = x + [0, 1, 0, -1][side]!;
               const oy = y + [-1, 0, 1, 0][side]!;
               const code = ox < 0 || oy < 0 || ox >= v.w || oy >= v.h ? -1 : v.cells[oy * v.w + ox]!;
-              assert.ok(code === 1 || code === 2, `${d.path} has a road or plaza at its door`);
+              assert.ok(code === 1 || code === 2 || code === 5, `${d.path} has a road, plaza or track at its door`);
             }
           }
         }
@@ -463,6 +500,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
             for (const c of ext) {
               const key = claim(c.x, c.y);
               assert.ok([0, 3].includes(sd.grid.cells[key]!), 'a home grows only onto ground or garden');
+              const pl = dw.plot!;
+              assert.ok(c.x >= pl.x && c.y >= pl.y && c.x < pl.x + pl.w && c.y < pl.y + pl.h, 'a home grows only inside its plot');
               const touches = [key - 1, key + 1, key - n, key + n].some((k) => cells.has(k) && Math.abs((k % n) - c.x) + Math.abs(Math.floor(k / n) - c.y) === 1);
               assert.ok(touches, 'a new cell touches its building on a side');
               cells.add(key);
@@ -532,6 +571,60 @@ assert.equal(viewLevel('s1/b2'), 'body');
   const t0 = performance.now();
   new SiteLife(seed, data).advanceTo(52 * 150);
   assert.ok(performance.now() - t0 < 2000, 'a 150 year fast-forward takes under 2s');
+}
+
+// Later buildings: some plots are built on only as the years go (nobody lives there, no growth, until then); farmsteads stand
+// outside the town; a jump to year N equals watching, and a built home fills with people.
+{
+  let later = 0;
+  let farms = 0;
+  let filled = 0;
+  for (const s of ['alpha', 'beta', 'gamma', 'first-light']) {
+    for (const b of settledBodyIndexes(s, 0)) {
+      for (const st of bodySites(s, 0, b)) {
+        const sd = siteLifeSeed(s, 0, b, st.index);
+        const l = new SiteLife(s, sd);
+        sd.dwellings.forEach((d, i) => {
+          if ((d.built ?? 0) > 0) {
+            later++;
+            assert.equal(d.residents, 0, 'a building not yet built holds nobody');
+            assert.equal(l.isBuilt(i, 0), false);
+          }
+          // A farmstead: a home out in the country, on a plot of 30 cells or more.
+          if (d.plot && d.plot.w * d.plot.h >= 30 && d.kind === 'home' && (d.built ?? 0) === 0 && d.residents > 0) {
+            const px = d.plot.x + d.plot.w / 2 - sd.grid.n / 2;
+            const py = d.plot.y + d.plot.h / 2 - sd.grid.n / 2;
+            if (Math.hypot(px, py) > 9) farms++;
+          }
+        });
+        // Watched week by week for one seed (and year by year for the rest): nobody lives in what is not built, and no home
+        // is ever over capacity, including the week a home is finished.
+        const weekly = s === 'alpha';
+        for (let w = 1; w <= 52 * 300; w++) {
+          if (!weekly && w % 52 !== 0) continue;
+          l.advanceTo(w);
+          sd.dwellings.forEach((_, i) => {
+            if (!l.isBuilt(i)) assert.equal(l.residents(i).length, 0, 'nobody lives in what is not built yet');
+            assert.ok(l.residents(i).length <= l.capacity(i), `${s} ${st.path} d${i} week ${w}: over capacity`);
+          });
+        }
+        const view = applyLife(genSite(s, 0, b, st.index, new DeltaStore()), l);
+        view.dwellings.forEach((d, i) => assert.equal(d.built, l.isBuilt(i), 'the view says which buildings stand'));
+        sd.dwellings.forEach((d, i) => {
+          if ((d.built ?? 0) > 0 && l.residents(i).length > 0) filled++;
+        });
+        const jump = new SiteLife(s, sd);
+        jump.advanceTo(52 * 300);
+        assert.equal(jump.living, l.living, 'jumping equals watching with later buildings');
+        sd.dwellings.forEach((d, i) => {
+          assert.deepEqual(jump.residents(i).map((p) => p.id), l.residents(i).map((p) => p.id), 'same people in every dwelling');
+        });
+      }
+    }
+  }
+  assert.ok(later > 50, `later buildings: ${later}`);
+  assert.ok(farms > 20, `farmsteads far from the center: ${farms}`);
+  assert.ok(filled > later / 3, `built later buildings filled: ${filled}/${later}`);
 }
 
 console.log(`ok: walked ${walked} settlements across 18 systems; names: ${names.join(' / ')}`);

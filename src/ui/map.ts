@@ -290,12 +290,13 @@ export class MapCanvas {
     } else {
       const ground = hexToRgb(pal.ground);
       const road = hexToRgb(pal.road);
+      const track = road.map((v, k) => Math.round((v + hexToRgb(pal.ground)[k]!) / 2)); // a footpath: between road and ground
       const green = hexToRgb(pal.green);
       const plaza = hexToRgb(pal.plaza);
       const water = hexToRgb(pal.water);
       for (let i = 0; i < v.cells.length; i++) {
         const c0 = v.cells[i];
-        const [r, g, b] = c0 === 1 ? road : c0 === 2 ? plaza : c0 === 3 ? green : c0 === 4 ? water : ground;
+        const [r, g, b] = c0 === 1 ? road : c0 === 2 ? plaza : c0 === 3 ? green : c0 === 4 ? water : c0 === 5 ? track : ground;
         img.data.set([r, g, b, 255], i * 4);
       }
     }
@@ -556,10 +557,27 @@ export class MapCanvas {
       ctx.fillRect(X(0), Y(0), v.w * s, v.h * s);
     }
 
+    if (this.marks['site.lots'] !== false) {
+      // Plots: a faint dashed edge, and a light wash on the ones nobody has built on yet.
+      ctx.save();
+      ctx.setLineDash([3, 3]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = 1;
+      for (const p of v.plots) {
+        if (p.dwelling < 0 || !v.dwellings[p.dwelling]?.built) {
+          ctx.fillStyle = 'rgba(255,255,255,0.07)';
+          ctx.fillRect(X(p.x), Y(p.y), p.w * s, p.h * s);
+        }
+        ctx.strokeRect(X(p.x) + 0.5, Y(p.y) + 0.5, p.w * s - 1, p.h * s - 1);
+      }
+      ctx.restore();
+    }
+
     const dyn = this.dyn?.level === 'site' ? this.dyn : null;
     const showDwellings = this.marks['site.dwellings'] !== false;
     if (showDwellings) {
       for (const d of v.dwellings) {
+        if (!d.built) continue;
         ctx.fillStyle = pal.dwelling[d.kind];
         const cells = footprint(d);
         for (const c of cells) ctx.fillRect(X(c.x), Y(c.y), s, s);
@@ -588,6 +606,7 @@ export class MapCanvas {
 
     if (showDwellings) {
       v.dwellings.forEach((d, i) => {
+        if (!d.built) return;
         if (dyn && dark > 0.15 && dyn.lit[i]) {
           ctx.fillStyle = `rgba(255,215,94,${Math.min(1, dark + 0.3)})`;
           // One lit window per two cells of footprint, so a big building glows more than a shed; a grown cell adds a half.
@@ -627,7 +646,7 @@ export class MapCanvas {
         for (const c of d.extra ?? []) this.hits.push({ path: d.path, x: X(c.x), y: Y(c.y), r: 0, w: s, h: s });
       });
       for (const d of v.dwellings) {
-        if (this.isSel(d.path) || this.hover === d.path) {
+        if (d.built && (this.isSel(d.path) || this.hover === d.path)) {
           this.label(this.pack.name('dwelling', d.nameKey, d.kind), X(d.x + d.w) + 4, Y(d.y));
         }
       }

@@ -13,6 +13,7 @@ import type {
   BodyView,
   DwellingKind,
   DwellingSummary,
+  PlotSummary,
   RecordChild,
   RecordData,
   RecordField,
@@ -344,6 +345,7 @@ interface SiteCore {
   site: Base<SiteSummary>;
   cells: Uint8Array;
   dwellings: Base<DwellingSummary>[];
+  plots: PlotSummary[];
   style: TownStyle;
   /** The people the district holds at tick 0. The generated `site.population` only sizes the layout. */
   population: number;
@@ -370,11 +372,15 @@ function siteCore(seed: string, si: number, bi: number, ti: number): SiteCore {
         h: b.h,
         residents: b.residents,
         door: b.door,
+        builtWeek: b.built,
+        built: b.built === 0,
+        plot: b.plot,
         capacity: b.kind === 'home' || b.kind === 'shop' ? capacityOf(b.w * b.h) : 0,
       };
     });
     const population = dwellings.reduce((n, d) => n + d.residents, 0);
-    return { body, site, cells: layout.cells, dwellings, style: layout.style, population };
+    const plots = layout.plots.map((p): PlotSummary => ({ x: p.x, y: p.y, w: p.w, h: p.h, dwelling: p.building }));
+    return { body, site, cells: layout.cells, dwellings, plots, style: layout.style, population };
   });
 }
 
@@ -396,6 +402,7 @@ export function genSite(seed: string, si: number, bi: number, ti: number, deltas
     h: SITE_N,
     cells: core.cells,
     dwellings: core.dwellings.map((d) => ({ ...d, inspected: deltas.isInspected(d.path) })),
+    plots: core.plots,
     dayLength: body.meta.dayLength,
     lon: site.x / BODY_W,
     population: core.population,
@@ -470,6 +477,8 @@ export function siteLifeSeed(seed: string, si: number, bi: number, ti: number): 
       y: d.y,
       w: d.w,
       h: d.h,
+      built: d.builtWeek,
+      plot: d.plot >= 0 ? sc.plots[d.plot] : undefined,
     })),
     grid: { n: SITE_N, cells: sc.cells },
   };
@@ -555,6 +564,7 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
       const sc = siteCore(seed, si, bi, last.i);
       const life = live?.life ?? null;
       const residents = life ? life.living : sc.dwellings.reduce((n, d) => n + d.residents, 0);
+      const standing = sc.dwellings.filter((d) => d.builtWeek <= (life?.week ?? 0)).length;
       return {
         path,
         kind: 'site',
@@ -566,7 +576,7 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
           { label: 'size', value: sc.site.size, vocab: 'size' },
           { label: 'layout', value: sc.style, vocab: 'layout' },
           num('population', life ? life.living : sc.population),
-          num('dwellings', sc.dwellings.length),
+          num('dwellings', standing),
           num('residents', residents, 'inhabitants'),
           ...(life ? [num('births', life.totals.births, 'inhabitants'), num('deaths', life.totals.deaths, 'inhabitants')] : []),
         ],
