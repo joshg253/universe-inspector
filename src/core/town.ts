@@ -13,6 +13,8 @@ export interface TownBuilding {
   h: number;
   kind: DwellingKind;
   residents: number;
+  /** The entrance: a cell of the building's rectangle on its edge, and which side it faces (0 north, 1 east, 2 south, 3 west). */
+  door: { x: number; y: number; side: number };
 }
 
 export interface TownLayout {
@@ -194,7 +196,7 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
   const hy = cy - Math.floor(hh / 2);
   const ring = size === 'large' ? 2 : 1;
   for (let y = hy - ring; y < hy + hh + ring; y++) for (let x = hx - ring; x < hx + hw + ring; x++) put(x, y, CELL.plaza, false);
-  const buildings: TownBuilding[] = [{ x: hx, y: hy, w: hw, h: hh, kind: 'hall', residents: (r.int(0, 2), 0) }]; // the draw is kept so every later one is unchanged
+  const buildings: TownBuilding[] = [{ x: hx, y: hy, w: hw, h: hh, kind: 'hall', residents: (r.int(0, 2), 0), door: { x: 0, y: 0, side: 0 } }]; // the draw is kept so every later one is unchanged
   for (let y = hy; y < hy + hh; y++) for (let x = hx; x < hx + hw; x++) occ[y * N + x] = 1;
 
   // ---- buildings along the streets
@@ -208,7 +210,7 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
   };
   const place = (bx: number, by: number, w: number, h: number) => {
     for (let y = by; y < by + h; y++) for (let x = bx; x < bx + w; x++) occ[y * N + x] = 1;
-    buildings.push({ x: bx, y: by, w, h, kind: 'home', residents: 0 });
+    buildings.push({ x: bx, y: by, w, h, kind: 'home', residents: 0, door: { x: bx, y: by, side: 0 } });
   };
   const footprint = (): [number, number] => {
     const total = FOOTPRINTS.reduce((n, f) => n + f[2], 0);
@@ -283,6 +285,72 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
       const n = noise.fbm(x / 4.5 + 11, y / 4.5 + 5, 2);
       if (n > (dist(x, y) < R * 1.05 ? 0.56 : 0.62)) cells[y * N + x] = CELL.green;
     }
+  }
+
+  // ---- footpaths and entrances. No draws: a pure walk over the finished town, so everything above is unchanged.
+  const SIDES: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // north, east, south, west
+  const free = (x: number, y: number) =>
+    inB(x, y) && !occ[y * N + x] && (cells[y * N + x] === CELL.ground || cells[y * N + x] === CELL.green);
+  const isStreet = (x: number, y: number) => inB(x, y) && (cells[y * N + x] === CELL.road || cells[y * N + x] === CELL.plaza);
+  /** The edge cells of a rectangle with the cell outside each, in a fixed scan order (north, east, south, west). */
+  const edgeCells = (b: TownBuilding) => {
+    const out: { x: number; y: number; side: number; ox: number; oy: number }[] = [];
+    for (let x = b.x; x < b.x + b.w; x++) out.push({ x, y: b.y, side: 0, ox: x, oy: b.y - 1 });
+    for (let y = b.y; y < b.y + b.h; y++) out.push({ x: b.x + b.w - 1, y, side: 1, ox: b.x + b.w, oy: y });
+    for (let x = b.x; x < b.x + b.w; x++) out.push({ x, y: b.y + b.h - 1, side: 2, ox: x, oy: b.y + b.h });
+    for (let y = b.y; y < b.y + b.h; y++) out.push({ x: b.x, y, side: 3, ox: b.x - 1, oy: y });
+    return out;
+  };
+  // A building with no street cell beside it gets the shortest run of free cells to the nearest street (at most 40): over
+  // land if any run exists, else with a bridge over the river (roads already cross it).
+  const FLOOD = (b: TownBuilding, bridge: boolean): number[] | null => {
+    const walk = (x: number, y: number) => free(x, y) || (bridge && inB(x, y) && !occ[y * N + x] && cells[y * N + x] === CELL.water);
+    const parent = new Map<number, number>();
+    let frontier: number[] = [];
+    for (const e of edgeCells(b)) {
+      const k = e.oy * N + e.ox;
+      if (walk(e.ox, e.oy) && !parent.has(k)) {
+        parent.set(k, -1);
+        frontier.push(k);
+      }
+    }
+    for (let depth = 0; depth < 40 && frontier.length > 0; depth++) {
+      const next: number[] = [];
+      for (const k of frontier) {
+        const x = k % N;
+        const y = Math.floor(k / N);
+        if (SIDES.some(([dx, dy]) => isStreet(x + dx, y + dy))) {
+          const run: number[] = [];
+          for (let q = k; q >= 0; q = parent.get(q)!) run.push(q);
+          return run;
+        }
+        for (const [dx, dy] of SIDES) {
+          const nk = (y + dy) * N + (x + dx);
+          if (walk(x + dx, y + dy) && !parent.has(nk)) {
+            parent.set(nk, k);
+            next.push(nk);
+          }
+        }
+      }
+      frontier = next;
+    }
+    return null;
+  };
+  for (const b of buildings) {
+    if (edgeCells(b).some((e) => isStreet(e.ox, e.oy))) continue;
+    const run = FLOOD(b, false) ?? FLOOD(b, true);
+    if (run) for (const k of run) cells[k] = CELL.road;
+  }
+  // One that no path reaches (walled in by its neighbors) is not built.
+  for (let i = buildings.length - 1; i >= 0; i--) {
+    if (!edgeCells(buildings[i]!).some((e) => isStreet(e.ox, e.oy))) buildings.splice(i, 1);
+  }
+  // The entrance: the first edge cell facing the plaza, else the first facing a road, else the first facing open ground.
+  for (const b of buildings) {
+    const edge = edgeCells(b);
+    const at = (e: { ox: number; oy: number }) => (inB(e.ox, e.oy) ? cells[e.oy * N + e.ox] : -1);
+    const pick = edge.find((e) => at(e) === CELL.plaza) ?? edge.find((e) => at(e) === CELL.road) ?? edge.find((e) => inB(e.ox, e.oy)) ?? edge[0]!;
+    b.door = { x: pick.x, y: pick.y, side: pick.side };
   }
 
   return { style, cells, buildings };

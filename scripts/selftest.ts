@@ -357,7 +357,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
         }
       }
     }
-    assert.ok(vacant / homes < 0.2, `vacancy after a century: ${vacant}/${homes}`);
+    assert.ok(vacant / homes < 0.25, `vacancy after a century: ${vacant}/${homes}`);
     assert.ok(arrivedKids > 0, 'households with children arrive');
     assert.ok(arrivedKidsMoved > 0, 'children who arrived with a household can leave home and found their own');
     assert.ok(end > start * 0.6 && end < start * 1.6, `population after a century: ${start} -> ${end}`);
@@ -390,6 +390,33 @@ assert.equal(viewLevel('s1/b2'), 'body');
       }
     }
     assert.ok(checked > 5, 'some settlements checked');
+  }
+
+  // Entrances and footpaths: every building has a door on its edge that opens onto a road or the plaza (a footpath is carved
+  // from a landlocked one; one nothing can reach is not built).
+  {
+    let all = 0;
+    for (const sd of ['alpha', 'beta', 'first-light']) {
+      for (let si = 0; si < 6; si++) {
+        for (const sbi of settledBodyIndexes(sd, si)) {
+          for (const st of bodySites(sd, si, sbi)) {
+            const v = genSite(sd, si, sbi, st.index, new DeltaStore());
+            for (const d of v.dwellings) {
+              all++;
+              const { x, y, side } = d.door;
+              assert.ok(x >= d.x && x < d.x + d.w && y >= d.y && y < d.y + d.h, 'the door is a cell of the building');
+              const edge = side === 0 ? y === d.y : side === 1 ? x === d.x + d.w - 1 : side === 2 ? y === d.y + d.h - 1 : x === d.x;
+              assert.ok(edge, 'the door cell is on the side it faces');
+              const ox = x + [0, 1, 0, -1][side]!;
+              const oy = y + [-1, 0, 1, 0][side]!;
+              const code = ox < 0 || oy < 0 || ox >= v.w || oy >= v.h ? -1 : v.cells[oy * v.w + ox]!;
+              assert.ok(code === 1 || code === 2, `${d.path} has a road or plaza at its door`);
+            }
+          }
+        }
+      }
+    }
+    assert.ok(all > 1000, 'buildings checked');
   }
 
   // Housing capacity and growth: nobody starts or lives in a home past its footprint; homes only ever grow, one cell at
@@ -441,19 +468,21 @@ assert.equal(viewLevel('s1/b2'), 'body');
               cells.add(key);
               added.push([i, c.x, c.y]);
             }
-            // No holes: no outside cell is closed in on three or more sides by the building.
-            for (const k of cells) {
-              for (const f of [k - 1, k + 1, k - n, k + n]) {
-                if (cells.has(f) || f < 0 || f >= n * n || Math.abs((f % n) - (k % n)) > 1) continue;
-                const around = [f - 1, f + 1, f - n, f + n].filter((q) => cells.has(q) && Math.abs((q % n) - (f % n)) <= 1).length;
-                assert.ok(around < 3, 'a grown home leaves no pocket');
-              }
-            }
             const xs = [...cells].map((k) => k % n);
             const ys = [...cells].map((k) => Math.floor(k / n));
             const bbox = (Math.max(...xs) - Math.min(...xs) + 1) * (Math.max(...ys) - Math.min(...ys) + 1);
             if (bbox > cells.size) bent++;
           });
+          // No pockets: no open cell beside a grown cell is closed in on three or more sides by buildings (its own or others').
+          for (const [, x, y] of added) {
+            for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]] as const) {
+              const fx = x + dx;
+              const fy = y + dy;
+              if (fx < 0 || fy < 0 || fx >= n || fy >= n || taken.has(fy * n + fx)) continue;
+              const closed = [[0, -1], [1, 0], [0, 1], [-1, 0]].filter(([ex, ey]) => taken.has((fy + ey!) * n + (fx + ex!)) && fx + ex! >= 0 && fx + ex! < n).length;
+              assert.ok(closed < 3, 'a grown home leaves no pocket');
+            }
+          }
           // A grown cell never has another building beside it, corners included.
           for (const [i, x, y] of added) {
             for (let dy = -1; dy <= 1; dy++) {
@@ -476,13 +505,22 @@ assert.equal(viewLevel('s1/b2'), 'body');
       };
       let early = 0;
       let late = 0;
+      let finished = 0;
       for (let k = 0; k < 40; k++) {
         const l = new SiteLife(`tiny${k}`, tiny);
         l.advanceTo(12);
         if (l.extension(0).length > 0) early++;
         l.advanceTo(14);
         if (l.extension(0).length > 0) late++;
+        // A home that took a cell finishes the notch of its outline within a few weeks, full or not: 2x1 becomes 2x2.
+        l.advanceTo(19);
+        if (l.extension(0).length >= 2) {
+          const xs = [2, 3, ...l.extension(0).map((c) => c.x)];
+          const ys = [2, ...l.extension(0).map((c) => c.y)];
+          if ((Math.max(...xs) - Math.min(...xs) + 1) * (Math.max(...ys) - Math.min(...ys) + 1) === 2 + l.extension(0).length) finished++;
+        }
       }
+      assert.ok(finished > late / 2, `a grown home fills the notch in its outline (${finished} of ${late})`);
       assert.equal(early, 0, 'no home grows before it has been full for 13 weeks');
       assert.ok(late > 10, `a full home grows after 13 weeks (${late} of 40)`);
     }

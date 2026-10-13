@@ -57,21 +57,19 @@ progression through ages, all deterministic from the seed. You watch and inspect
       stay the universal clock (ages, speed ladder, `core/time.ts`); a planet's local day and year are for light,
       local time and seasons only. Calendars with month names are a pack concern.
 - [~] **Housing capacity and growth:** done: capacity from the footprint (2 + area/2, cap 10), a full home pushes its
-      grown children out faster, and a home full for a quarter takes one adjacent free cell (never road, water or
-      beside another building, so shapes bend but leave no pockets; decided in the fold; the map shows it). Left: a couple (not only grown
-      children) pushed out by crowding; new buildings come after, under founding dates below.
+      grown children out faster, and a home full for a quarter takes one adjacent free cell (never road, water or beside
+      another building; no pockets; a notch in the outline first, else the most square result; a grown home finishes
+      its notches; decided in the fold; the map shows it). Left: a couple (not only grown children) pushed out by
+      crowding; new buildings come after, under founding dates below.
 - [ ] **Homelessness:** `residence` becomes optional (none = unhoused). People end up there when their home is lost (ruin),
       a household is pushed out, or migrants arrive with no vacancy; they leave by taking the next vacant home (or
       squatting a ruin). Higher mortality in winter and famine years, lower fertility, shown in streets and plaza.
       Money and eviction is a second route here. The unhoused count per district is a measurable stress signal that feeds economic pull.
-- [ ] **Footpaths:** every building touches a road or the plaza. Today about 5% (back lots) do not. A short run of
-      road cells is carved from each landlocked building to the nearest road through free ground (never over a
-      building or water); layout draws kept so the rest of the town is unchanged. Test: every building touches a road.
-      Later a path cell type separate from road, and the access rule for any new building.
-      Entrances: each building has one door, an edge cell facing a road, plaza or path cell (derived, not stored: a
-      pure function of building and grid, nearest road or plaza first, fixed scan order as the tie-break; growth never
-      covers it). Drawn as a door mark on the map; daily routines later walk door to door, shops and the hall may get
-      several. Test: every building has an entrance cell that is road, plaza or path.
+- [~] **Footpaths and entrances:** done: every building has a derived door (an edge cell facing the plaza, else a road) drawn
+      as a mark, and a building with no street beside it gets the shortest run of free cells to the nearest street
+      (over land, else a bridge across the river, at most 40 cells); no random draws.
+      A building walled in by its neighbors (about 1 in 12,000) is not built, which shifts the later `d<n>` indexes of that district. Left: a path cell type separate from road;
+      the access rule for any new building; shops and the hall may get several doors; routines walk door to door.
 - [ ] **Lots and outbuildings:** a lot is a parcel (cells, an owner later) that holds a main dwelling and any outbuildings
       (garage, shed, barn, workshop: no residents, own kind, own footprint). Growth happens inside the lot (its yard is
       the buffer, replacing the "never touch another building" rule); a lot has road access (footpath) or a lane.
@@ -81,6 +79,11 @@ progression through ages, all deterministic from the seed. You watch and inspect
       live beyond the built-up edge and the district map shows scattered holdings. Ownership, rent and tax attach to
       lots. Paths: outbuildings must not shift existing `d<n>` indexes (appended after, or their own `o<n>` segment).
       Needs footpaths first; a building holding several units (units per building) is still a separate step.
+      Plot lifecycle over the ages: early on, large plots outside the town (farms, steadings) and small ones downtown
+      (shops, apartments); as the town ages plots are subdivided, more buildings go in, and old low buildings are
+      replaced by denser ones under the age's zoning (the catalog decides what replaces what, and which plots
+      subdivide, merge or change use). Plot size, subdivision and replacement are all folds of (seed, district,
+      week), so the town's history is reproducible and late equals watching.
 
 - [ ] **Partners:** an explicit `partner` link on a person, never inferred from sharing a home (housemates and
       roommates stay unlinked), one partner at most (a single nullable id, no larger groups), any pair of adults
@@ -112,6 +115,15 @@ progression through ages, all deterministic from the seed. You watch and inspect
       height number or shading on the map, with units stacked per floor. A building holds several households; capacity
       and vacancy are per unit; a person gets a unit number beside their dwelling (paths and identity unchanged).
       Needs housing capacity first.
+- [ ] **New buildings (next; matters more than growing existing ones):** measured over 100 years: 323 of 328 full homes
+      are boxed in (no free cell that touches them, leaves no pocket and stays clear of neighbors), so room is the
+      limit and extensions run dry. A pure fold step: when homes stay full or vacancy is nil, a new building is placed
+      on free ground that touches a street (or a footpath from one), picked by a deterministic scan with a roll from
+      (week, district); it gets the next index (appended: existing `d<n>` paths never move), a `builtTick`, and its
+      first residents are the household that was pushed out. The map shows buildings that do not exist yet as
+      absent. Needs the `SiteLifeSeed` grid and `occ` bitmap the growth pass already keeps, and a kind chooser
+      (homes mostly; shops and works by need later, with the age catalog). Replaces most extension growth as the way
+      a town gets bigger.
 - [ ] **Founding dates and growth:** every settlement gets a `founded` tick (negative = already existed, so old towns
       are more built-out at tick 0; positive = appears later) and every building a `builtTick` from the town's plan
       order and a growth curve. People only live in buildings that exist, so households found new homes and
