@@ -323,6 +323,11 @@ progression through ages, all deterministic from the seed. You watch and inspect
 - [ ] **More UI tools (left over):** a family-tree view for a person (parents, partner, children, grandchildren as a
       diagram); condition on the hover card once buildings have it.
 
+- [ ] **Map views (overlay selector):** a dropdown by the zoom controls that recolors the district or planet map by one
+      measure: Normal, Resources (per cell, once they exist), Building age, Condition, Residents per building, Land use,
+      Water (salt or fresh). One registry of views (id, label, per-cell or per-building color function), so a new
+      measure is one entry. Building age and Residents work from data that exists now; the others wait on their features.
+
 - [ ] **Canon vs provisional (observation persistence):** inspecting something commits it. Today "inspect"
       only stores a boolean flag and the content is regenerated from the seed each time, so a generator
       change would silently alter things you already inspected. Idea: on inspect, snapshot the record into
