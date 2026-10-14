@@ -357,7 +357,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
         }
       }
     }
-    assert.ok(vacant / homes < 0.4, `vacancy after a century: ${vacant}/${homes}`);
+    // Homes are built ahead of need, and a plague year (0.8% of years) empties households: under half stand empty.
+    assert.ok(vacant / homes < 0.55, `vacancy after a century: ${vacant}/${homes}`);
     assert.ok(arrivedKids > 0, 'households with children arrive');
     assert.ok(arrivedKidsMoved > 0, 'children who arrived with a household can leave home and found their own');
     assert.ok(end > start * 0.6 && end < start * 1.6, `population after a century: ${start} -> ${end}`);
@@ -438,6 +439,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
         for (const sbi of settledBodyIndexes(sd, si)) {
           for (const st of bodySites(sd, si, sbi)) {
             const v = genSite(sd, si, sbi, st.index, new DeltaStore());
+            const full = v.cells.slice(); // every path laid, standing or not
+            for (const d of v.dwellings) for (const e of d.track ?? []) full[e >> 3] = 5;
             for (const d of v.dwellings) {
               all++;
               const { x, y, side } = d.door;
@@ -446,7 +449,9 @@ assert.equal(viewLevel('s1/b2'), 'body');
               assert.ok(edge, 'the door cell is on the side it faces');
               const ox = x + [0, 1, 0, -1][side]!;
               const oy = y + [-1, 0, 1, 0][side]!;
-              const code = ox < 0 || oy < 0 || ox >= v.w || oy >= v.h ? -1 : v.cells[oy * v.w + ox]!;
+              // Standing at tick 0: the door must face a street that is drawn. Finished later: that, or its own path.
+              const own = (d.track ?? []).some((e) => e >> 3 === oy * v.w + ox);
+              const code = ox < 0 || oy < 0 || ox >= v.w || oy >= v.h ? -1 : d.built || !own ? v.cells[oy * v.w + ox]! : full[oy * v.w + ox]!;
               assert.ok(code === 1 || code === 2 || code === 5, `${d.path} has a road, plaza or track at its door`);
             }
           }
@@ -579,13 +584,16 @@ assert.equal(viewLevel('s1/b2'), 'body');
   let later = 0;
   let farms = 0;
   let filled = 0;
+  let standing = 0; // later buildings that stand at the end and are meant to hold people
+  let reserved = 0; // plots held in reserve, and how many were built because homes were full
+  let reserveUsed = 0;
   for (const s of ['alpha', 'beta', 'gamma', 'first-light']) {
     for (const b of settledBodyIndexes(s, 0)) {
       for (const st of bodySites(s, 0, b)) {
         const sd = siteLifeSeed(s, 0, b, st.index);
         const l = new SiteLife(s, sd);
         sd.dwellings.forEach((d, i) => {
-          if ((d.built ?? 0) > 0) {
+          if ((d.built ?? 0) !== 0) {
             later++;
             assert.equal(d.residents, 0, 'a building not yet built holds nobody');
             assert.equal(l.isBuilt(i, 0), false);
@@ -610,8 +618,18 @@ assert.equal(viewLevel('s1/b2'), 'body');
         }
         const view = applyLife(genSite(s, 0, b, st.index, new DeltaStore()), l);
         view.dwellings.forEach((d, i) => assert.equal(d.built, l.isBuilt(i), 'the view says which buildings stand'));
+        view.dwellings.forEach((d) => {
+          for (const e of d.track ?? []) assert.equal(view.cells[e >> 3] === 5, d.built, 'a path is drawn once its building stands');
+        });
         sd.dwellings.forEach((d, i) => {
-          if ((d.built ?? 0) > 0 && l.residents(i).length > 0) filled++;
+          if ((d.built ?? 0) !== 0 && l.isBuilt(i) && (d.kind === 'home' || d.kind === 'shop')) {
+            standing++;
+            if (l.residents(i).length > 0) filled++;
+          }
+          if (d.built === -1) {
+            reserved++;
+            if (l.isBuilt(i)) reserveUsed++;
+          }
         });
         const jump = new SiteLife(s, sd);
         jump.advanceTo(52 * 300);
@@ -622,9 +640,33 @@ assert.equal(viewLevel('s1/b2'), 'body');
       }
     }
   }
+  // Over a thousand years some places fill every plot and some wither away (decline, plague); nobody lives in a ruin.
+  let full = 0;
+  let extinct = 0;
+  for (const s of ['alpha', 'first-light']) {
+    for (const b of settledBodyIndexes(s, 0)) {
+      for (const st of bodySites(s, 0, b)) {
+        const sd = siteLifeSeed(s, 0, b, st.index);
+        const l = new SiteLife(s, sd);
+        let peak = 0;
+        for (let y = 100; y <= 1000; y += 100) {
+          l.advanceTo(52 * y);
+          peak = Math.max(peak, sd.dwellings.filter((_, i) => l.isBuilt(i)).length);
+          sd.dwellings.forEach((_, i) => {
+            if (!l.isBuilt(i)) assert.equal(l.residents(i).length, 0, 'nobody lives in a ruin');
+          });
+        }
+        if (peak >= 0.9 * sd.dwellings.length) full++;
+        if (l.living === 0) extinct++;
+      }
+    }
+  }
+  assert.ok(full > 0, `some place fills nearly every plot: ${full}`);
+  assert.ok(extinct > 0, `some place dies out: ${extinct}`);
   assert.ok(later > 50, `later buildings: ${later}`);
   assert.ok(farms > 20, `farmsteads far from the center: ${farms}`);
-  assert.ok(filled > later / 3, `built later buildings filled: ${filled}/${later}`);
+  assert.ok(reserved > 0 && reserveUsed > 0 && reserveUsed < reserved, `reserve plots are built when needed, not all at once: ${reserveUsed}/${reserved}`);
+  assert.ok(standing > 0 && filled > standing / 3, `built later buildings filled: ${filled}/${standing}`);
 }
 
 console.log(`ok: walked ${walked} settlements across 18 systems; names: ${names.join(' / ')}`);

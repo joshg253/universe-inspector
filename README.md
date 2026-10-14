@@ -20,6 +20,7 @@ scripts\run.cmd build                  ./scripts/run.sh build    # static site i
 ```
 
 If you already have Node 24, plain `npm ci` and `npm run dev` work too. A dev container is in `.devcontainer/`.
+The dev server listens on the LAN (`server.host` in `vite.config.ts`), so a phone or laptop can open `http://<this-pc>:5173`; Windows Firewall may ask once to allow Node on the private network.
 
 ## Documentation
 

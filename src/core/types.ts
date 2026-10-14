@@ -80,10 +80,12 @@ export interface DwellingSummary {
   plot: number;
   /** The entrance: an edge cell of the original rectangle and the side it faces (0 north, 1 east, 2 south, 3 west). */
   door: { x: number; y: number; side: number };
-  /** The week it is finished (0: standing from the start). Until then the plot is cleared and nobody lives there. */
+  /** The week it is finished (0: standing from the start; -1: held in reserve until the town needs it; a view with life gives the live value). Until then nobody lives there. */
   builtWeek: number;
   /** Whether it stands now (set from the running district; at tick 0, `builtWeek === 0`). */
   built: boolean;
+  /** The footpath carved for a building finished later (cell index x 8 + the cell's class before), left out of `cells` until it stands. */
+  track?: number[];
   inspected: boolean;
 }
 
