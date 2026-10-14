@@ -831,11 +831,11 @@ export function districtSeries(life: SiteLife, kind: 'dwellings' | 'births' | 'd
   return kind === 'dwellings' ? sampleSeries(life.week, count, points) : rateSeries(life.week, count, points);
 }
 
-/** A running total turned into a rate: events per year over each stretch of a fixed grid (a final stretch under 4 weeks is left out). */
+/** A running total turned into a rate: events per year over each stretch of a fixed grid, at least 4 weeks long so one event is not scaled into a spike (a final stretch under 4 weeks is left out). */
 function rateSeries(W: number, total: (week: number) => number, points: number): SeriesPoint[] {
   if (W < 1) return [];
   const n = Math.max(2, Math.floor(points));
-  let step = 1;
+  let step = 4;
   while (step * (n - 1) < W) step *= 2;
   const out: SeriesPoint[] = [];
   let from = 0;

@@ -100,7 +100,9 @@ export class Sim {
   goto(tick: number): SimEvent[] {
     const to = Math.max(0, Math.floor(tick));
     if (to >= this.tick) return this.advance(to - this.tick);
-    this.lives.clear();
+    // Only a district folded past the target is dropped; the rest are not ahead of it and stay as they are.
+    const week = Math.floor(to / TICKS_PER_WEEK);
+    for (const [path, life] of this.lives) if (life.week > week) this.lives.delete(path);
     this.tick = to;
     if (this.watchSite) this.lifeFor(this.watchSite);
     this.lifeVersion++;

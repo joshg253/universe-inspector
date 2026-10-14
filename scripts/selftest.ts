@@ -287,6 +287,15 @@ assert.equal(viewLevel('s1/b2'), 'body');
     near.advance(2 * TICKS_PER_YEAR + 123);
     assert.equal(far.tick, near.tick);
     assert.equal(json(far.lifeFor(site.path)!.people), json(near.lifeFor(site.path)!.people), 'going back equals never having gone on');
+    const same = json(far.lifeFor(site.path)!.people);
+    far.goto(far.tick);
+    assert.equal(json(far.lifeFor(site.path)!.people), same, 'going to the same tick changes nothing');
+    // Graphs and the pyramid: a short run has no one-week spike in a rate, and the pyramid adds up to the living.
+    const young = far.lifeFor(site.path)!;
+    const rate = districtSeries(young, 'deaths');
+    assert.ok(rate.length > 0 && rate[0]!.t >= 4 * TICKS_PER_WEEK, 'a rate is never scaled up from a stretch under four weeks');
+    const rec = genRecord(seed, site.path, new DeltaStore(), { tick: far.tick, life: young });
+    assert.equal((rec.pyramid!.f.concat(rec.pyramid!.m)).reduce((n, v) => n + v, 0), young.living, 'the pyramid adds up to the living');
     far.goto(4 * TICKS_PER_YEAR);
     near.advance(4 * TICKS_PER_YEAR - near.tick);
     assert.equal(json(far.lifeFor(site.path)!.people), json(near.lifeFor(site.path)!.people), 'and forward again');

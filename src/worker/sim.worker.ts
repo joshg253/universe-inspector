@@ -23,6 +23,7 @@ let tpsT0 = performance.now();
 let tps = 0;
 let recordPath: string | null = null;
 let seenLifeVersion = 0;
+let maxTick = 0; // the furthest this run has gone: the scrubber goes back anywhere up to it
 
 function buildView(path: string): View {
   const segs = parsePath(path);
@@ -64,6 +65,7 @@ function postTick(): void {
     events: evBuf,
     tps,
     speed: speedIdx,
+    maxTick: (maxTick = Math.max(maxTick, sim.tick)),
   });
   evBuf = [];
   dirty = false;
@@ -109,6 +111,7 @@ ctx.onmessage = (e) => {
       case 'reset':
         sim = new Sim(msg.seed);
         seenLifeVersion = 0;
+        maxTick = 0;
         recordPath = null;
         view = null;
         acc = 0;
@@ -132,12 +135,13 @@ ctx.onmessage = (e) => {
         postTick();
         break;
       case 'goto': {
-        const evs = sim.goto(msg.tick);
+        // A forward jump is capped (like Step, but larger): typing a year of 99999 must not hang the worker.
+        const evs = sim.goto(Math.min(msg.tick, sim.tick + 100_000_000));
         for (const e of evs) evBuf.push(e);
         view = view ? buildView(view.path) : view;
         postView();
         if (recordPath) ctx.postMessage({ type: 'record', record: recordFor(recordPath) });
-        refreshLive();
+        seenLifeVersion = sim.lifeVersion; // the view and record above are already fresh
         postTick();
         break;
       }

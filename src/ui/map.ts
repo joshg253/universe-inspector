@@ -86,6 +86,7 @@ export class MapCanvas {
   private drag: { x: number; y: number; ox: number; oy: number; moved: boolean } | null = null;
   private raf = 0;
   private legend: HTMLElement;
+  private tip: HTMLElement;
 
   constructor(pack: Pack, private hooks: MapHooks) {
     this.pack = pack;
@@ -100,13 +101,15 @@ export class MapCanvas {
       btn('Fit', 'Fit to window', () => this.fit()),
     );
     this.legend = h('div', { class: 'maplegend' });
-    this.root = h('div', { class: 'mapwrap' }, this.canvas, buttons, this.legend);
+    this.tip = h('div', { class: 'maptip' });
+    this.root = h('div', { class: 'mapwrap' }, this.canvas, buttons, this.legend, this.tip);
 
     new ResizeObserver(() => this.resize()).observe(this.root);
     this.canvas.addEventListener('pointerdown', (e) => this.onDown(e));
     this.canvas.addEventListener('pointermove', (e) => this.onMove(e));
     this.canvas.addEventListener('pointerup', (e) => this.onUp(e));
     this.canvas.addEventListener('pointerleave', () => {
+      this.tip.style.display = 'none';
       if (!this.drag && this.hover) {
         this.hover = null;
         this.redraw();
@@ -210,6 +213,7 @@ export class MapCanvas {
 
   private onMove(e: PointerEvent): void {
     if (this.drag) {
+      this.tip.style.display = 'none';
       const dx = e.clientX - this.drag.x;
       const dy = e.clientY - this.drag.y;
       if (!this.drag.moved && Math.hypot(dx, dy) > 3) this.drag.moved = true;
@@ -228,6 +232,35 @@ export class MapCanvas {
       this.hover = path;
       this.redraw();
     }
+    this.showTip(path, ...this.local(e));
+  }
+
+  /** A small card beside the pointer: what a building or settlement is, who is in it, how old it is. */
+  private showTip(path: string | null, x: number, y: number): void {
+    const v = this.view;
+    const lines: string[] = [];
+    if (path && v?.level === 'site') {
+      const d = v.dwellings.find((q) => q.path === path);
+      if (d?.built) {
+        lines.push(this.pack.name('dwelling', d.nameKey, d.kind));
+        const room = d.capacity > 0 ? `${d.residents} of ${d.capacity}` : `${d.residents}`;
+        lines.push(`${this.pack.t(`dwelling.${d.kind}`)} · ${d.w * d.h + (d.extra?.length ?? 0)} cells`);
+        if (d.kind === 'home' || d.kind === 'shop') lines.push(`${room} ${d.capacity > 0 ? 'residents' : ''}`.trim());
+        lines.push(d.builtWeek > 0 ? `Built year ${Math.floor(d.builtWeek / 52)}` : 'Stood from the start');
+      }
+    } else if (path && v?.level === 'body') {
+      const s = v.sites.find((q) => q.path === path);
+      if (s) lines.push(this.pack.name('site', s.nameKey, s.size), `${this.pack.t(`size.${s.size}`)} · ${s.population.toLocaleString('en-US')} people`);
+    }
+    if (lines.length === 0) {
+      this.tip.style.display = 'none';
+      return;
+    }
+    this.tip.replaceChildren(...lines.map((t, i) => h(i === 0 ? 'b' : 'div', null, t)));
+    this.tip.style.display = 'block';
+    const w = this.root.clientWidth;
+    this.tip.style.left = `${Math.min(x + 14, Math.max(0, w - 150))}px`;
+    this.tip.style.top = `${Math.max(0, Math.min(y + 14, this.root.clientHeight - 64))}px`;
   }
 
   private onUp(e: PointerEvent): void {

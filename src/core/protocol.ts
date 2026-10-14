@@ -45,5 +45,5 @@ export type ToWorker =
 export type FromWorker =
   | { type: 'view'; view: View }
   | { type: 'record'; record: RecordData }
-  | { type: 'tick'; tick: number; dyn: Dyn | null; events: SimEvent[]; tps: number; speed: number }
+  | { type: 'tick'; tick: number; dyn: Dyn | null; events: SimEvent[]; tps: number; speed: number; maxTick: number }
   | { type: 'error'; message: string };

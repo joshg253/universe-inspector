@@ -351,6 +351,24 @@ interface SiteCore {
   population: number;
 }
 
+/** The living by 10-year age band and sex. */
+function agePyramid(life: SiteLife, tick: number): { step: number; f: number[]; m: number[] } {
+  const step = 10;
+  const f: number[] = [];
+  const m: number[] = [];
+  for (const p of life.people) {
+    if (p.deathTick !== null) continue;
+    const band = Math.min(9, Math.floor(ageAt(p, tick) / step));
+    const side = p.sex === 'f' ? f : m;
+    while (side.length <= band) side.push(0);
+    side[band]!++;
+  }
+  const n = Math.max(f.length, m.length);
+  while (f.length < n) f.push(0);
+  while (m.length < n) m.push(0);
+  return { step, f, m };
+}
+
 const siteCache = new Map<string, SiteCore>();
 
 function siteCore(seed: string, si: number, bi: number, ti: number): SiteCore {
@@ -597,6 +615,7 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
             : []),
         ],
         children: [],
+        pyramid: life ? agePyramid(life, live!.tick) : undefined,
         charts: life
           ? [
               { label: 'population', points: pop },

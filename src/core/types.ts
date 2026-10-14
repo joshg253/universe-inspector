@@ -185,7 +185,7 @@ export interface RecordField {
   /** if set, the value is an id the pack translates as `${vocab}.${value}` */
   vocab?: string;
   feature?: FeatureId;
-  /** For a level that moves over time (not a running total): the lowest and highest it has been. */
+  /** The lowest and highest the stat has been over the run (for a total such as births, of its yearly rate: see `perYear`). */
   range?: { min: number; max: number; perYear?: boolean };
 }
 
@@ -228,4 +228,6 @@ export interface RecordData {
   children: RecordChild[];
   links?: RecordLinks[];
   charts?: RecordChart[];
+  /** Living people by age band (`step` years each, youngest first) and sex, for a settlement. */
+  pyramid?: { step: number; f: number[]; m: number[] };
 }
