@@ -8,6 +8,11 @@ export const BASE_WORDS: Record<string, string> = {
   'level.body': 'Body',
   'level.site': 'Site',
   'level.dwelling': 'Structure',
+  'legend.road': 'Road',
+  'legend.track': 'Footpath',
+  'legend.plaza': 'Plaza',
+  'legend.water': 'Water',
+  'legend.green': 'Green',
 
   'star.dim': 'Dim star',
   'star.mid': 'Mid star',

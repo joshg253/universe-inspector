@@ -320,6 +320,10 @@ progression through ages, all deterministic from the seed. You watch and inspect
 
 (new ideas land here)
 
+- [ ] **More UI tools (left over):** hover card on a building (kind, age, residents, later condition); event log filter by
+      kind; population pyramid (age by sex) and a family-tree view for a person; sortable structure list; the view and
+      selection kept in the URL.
+
 - [ ] **Canon vs provisional (observation persistence):** inspecting something commits it. Today "inspect"
       only stores a boolean flag and the content is regenerated from the seed each time, so a generator
       change would silently alter things you already inspected. Idea: on inspect, snapshot the record into

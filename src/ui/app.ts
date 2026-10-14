@@ -1,6 +1,7 @@
 import { lineChart } from './chart';
 import { depth, parentPath, parsePath } from '../core/path';
 import { DAY, YEAR } from '../core/time';
+import { TICKS_PER_WEEK } from '../core/life';
 import { BASE_TICKS, LADDER, SPEED_GLYPHS, STEP_GLYPH, spanLabel, speedTps, type FromWorker, type ToWorker } from '../core/protocol';
 import type { Dyn, FeatureId, RecordChild, RecordData, SimEvent, View } from '../core/types';
 import { DEFAULT_PACK_ID, PACKS, packOf } from '../packs';
@@ -147,6 +148,8 @@ export function startApp(root: HTMLElement): void {
     selPath: null as string | null,
     record: null as RecordData | null,
     tick: 0,
+    /** The furthest tick this run has reached: the scrubber goes back anywhere up to it. */
+    maxTick: 0,
     speed: 0,
     tps: 0,
     dyn: null as Dyn | null,
@@ -314,6 +317,15 @@ export function startApp(root: HTMLElement): void {
     helpLine,
   );
 
+  // Jump to a year, or scrub anywhere within what has run (going back refolds the district from the start).
+  const yearInput = h('input', { type: 'number', class: 'num', min: 0, step: 1, value: 0, title: 'Year to jump to' });
+  const goTo = (tick: number) => send({ type: 'goto', tick: Math.max(0, Math.round(tick)) });
+  yearInput.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') goTo((Number(yearInput.value) || 0) * YEAR);
+  });
+  const scrub = h('input', { type: 'range', class: 'scrub', min: 0, max: 0, step: 1, value: 0, title: 'Scrub through time' });
+  scrub.addEventListener('input', () => goTo(Number(scrub.value) * TICKS_PER_WEEK));
+
   // Zoom and time controls stay visible whichever tab is open.
   const controls = h(
     'div',
@@ -321,6 +333,8 @@ export function startApp(root: HTMLElement): void {
     h('div', { class: 'btnrow' }, btnOut, btnIn, btnInspect),
     h('div', { class: 'btnrow' }, btnStep, stepSize),
     h('div', { class: 'btnrow' }, ...speedBtns),
+    h('div', { class: 'btnrow' }, h('label', null, 'Year'), yearInput, h('button', { class: 'small', onclick: () => goTo((Number(yearInput.value) || 0) * YEAR) }, 'Go')),
+    h('div', { class: 'btnrow' }, scrub),
   );
 
   // --- Results / Record / Settings panels
@@ -974,6 +988,7 @@ export function startApp(root: HTMLElement): void {
     state.view = null;
     state.dyn = null;
     persist();
+    state.maxTick = 0;
     send({ type: 'reset', seed });
     renderChrome();
     renderLog();
@@ -1029,6 +1044,10 @@ export function startApp(root: HTMLElement): void {
         break;
       case 'tick':
         state.tick = m.tick;
+        state.maxTick = Math.max(state.maxTick, m.tick);
+        scrub.max = String(Math.floor(state.maxTick / TICKS_PER_WEEK));
+        scrub.value = String(Math.floor(m.tick / TICKS_PER_WEEK));
+        if (document.activeElement !== yearInput) yearInput.value = String(Math.floor(m.tick / YEAR));
         state.tps = m.tps;
         state.dyn = m.dyn;
         if (m.dyn && state.view && m.dyn.level === state.view.level) map.setDyn(m.dyn);
@@ -1052,8 +1071,11 @@ export function startApp(root: HTMLElement): void {
       return;
     }
     const target = e.target as HTMLElement;
-    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return;
-    if (e.key === ' ') {
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) || target === splitter) return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      pickItem(curItem() + (e.key === 'ArrowRight' ? 1 : -1));
+    } else if (e.key === ' ') {
       e.preventDefault();
       if (target.tagName === 'BUTTON') target.blur();
       setSpeed(state.speed === 0 ? 1 : 0);

@@ -131,6 +131,16 @@ ctx.onmessage = (e) => {
         runTicks(Math.max(1, Math.min(10_000_000, msg.n ?? 1)), false);
         postTick();
         break;
+      case 'goto': {
+        const evs = sim.goto(msg.tick);
+        for (const e of evs) evBuf.push(e);
+        view = view ? buildView(view.path) : view;
+        postView();
+        if (recordPath) ctx.postMessage({ type: 'record', record: recordFor(recordPath) });
+        refreshLive();
+        postTick();
+        break;
+      }
       case 'speed':
         speedIdx = Math.max(0, Math.min(SPEED_GLYPHS.length - 1, msg.index));
         acc = 0;

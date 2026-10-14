@@ -276,6 +276,22 @@ assert.equal(viewLevel('s1/b2'), 'body');
     assert.equal(json(c.lifeFor(site.path)!.people), json(a.lifeFor(site.path)!.people), 'chained jumps equal stepping');
   }
 
+  // Rewinding (the time scrubber) gives the same people as a run that never went further.
+  {
+    const far = new Sim(seed);
+    far.setFocusFromPath(site.path);
+    far.advance(5 * TICKS_PER_YEAR);
+    far.goto(2 * TICKS_PER_YEAR + 123);
+    const near = new Sim(seed);
+    near.setFocusFromPath(site.path);
+    near.advance(2 * TICKS_PER_YEAR + 123);
+    assert.equal(far.tick, near.tick);
+    assert.equal(json(far.lifeFor(site.path)!.people), json(near.lifeFor(site.path)!.people), 'going back equals never having gone on');
+    far.goto(4 * TICKS_PER_YEAR);
+    near.advance(4 * TICKS_PER_YEAR - near.tick);
+    assert.equal(json(far.lifeFor(site.path)!.people), json(near.lifeFor(site.path)!.people), 'and forward again');
+  }
+
   // The Sim reports the same world whether the district was watched from the start or only looked at later.
   const watched = new Sim(seed);
   watched.setFocusFromPath(site.path);

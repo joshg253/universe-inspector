@@ -85,6 +85,7 @@ export class MapCanvas {
   private hits: HitItem[] = [];
   private drag: { x: number; y: number; ox: number; oy: number; moved: boolean } | null = null;
   private raf = 0;
+  private legend: HTMLElement;
 
   constructor(pack: Pack, private hooks: MapHooks) {
     this.pack = pack;
@@ -98,7 +99,8 @@ export class MapCanvas {
       btn('-', 'Zoom out', () => this.zoomAt(1 / 1.4, this.cssW / 2, this.cssH / 2)),
       btn('Fit', 'Fit to window', () => this.fit()),
     );
-    this.root = h('div', { class: 'mapwrap' }, this.canvas, buttons);
+    this.legend = h('div', { class: 'maplegend' });
+    this.root = h('div', { class: 'mapwrap' }, this.canvas, buttons, this.legend);
 
     new ResizeObserver(() => this.resize()).observe(this.root);
     this.canvas.addEventListener('pointerdown', (e) => this.onDown(e));
@@ -302,6 +304,37 @@ export class MapCanvas {
     this.redraw();
   }
 
+  /** What the colors mean in a district; hidden on the other levels. */
+  private drawLegend(v: View | null): void {
+    const show = v?.level === 'site' && this.marks['site.legend'] !== false;
+    this.legend.style.display = show ? '' : 'none';
+    if (!show) return;
+    const pal = this.pack.palette;
+    const t = (k: string) => this.pack.t(k);
+    const mid = (a: string, b: string) => {
+      const x = hexToRgb(a);
+      const y = hexToRgb(b);
+      return `rgb(${x.map((c, i) => Math.round((c + y[i]!) / 2)).join(',')})`;
+    };
+    const items: [string, string][] = [
+      [pal.dwelling.home, t('dwelling.home')],
+      [pal.dwelling.shop, t('dwelling.shop')],
+      [pal.dwelling.works, t('dwelling.works')],
+      [pal.dwelling.hall, t('dwelling.hall')],
+      [pal.road, t('legend.road')],
+      [mid(pal.road, pal.ground), t('legend.track')],
+      [pal.plaza, t('legend.plaza')],
+      [pal.water, t('legend.water')],
+      [pal.green, t('legend.green')],
+    ];
+    const key = items.map((i) => i.join('|')).join(';');
+    if (this.legend.dataset.key === key) return;
+    this.legend.dataset.key = key;
+    this.legend.replaceChildren(
+      ...items.map(([c, label]) => h('span', { class: 'lg' }, h('i', { style: `background:${c}` }), label)),
+    );
+  }
+
   private draw(): void {
     const ctx = this.ctx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -309,6 +342,7 @@ export class MapCanvas {
     ctx.fillRect(0, 0, this.cssW, this.cssH);
     this.hits = [];
     const v = this.view;
+    this.drawLegend(v);
     if (!v) return;
     if (v.level === 'universe') this.drawUniverse(v);
     else if (v.level === 'system') this.drawSystem(v);
