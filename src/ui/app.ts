@@ -223,9 +223,30 @@ export function startApp(root: HTMLElement): void {
     min: 0,
     step: 1,
     value: 0,
-    onchange: () => goView(`s${Math.max(0, Math.floor(Number(sysInput.value) || 0))}`),
+    onchange: () => pickItem(Math.floor(Number(sysInput.value) || 0)),
   });
-  const curSys = () => parsePath(state.viewPath)[0]?.i ?? 0;
+  // The picker steps through what the view holds: systems in the universe, bodies in a system, sites on a body, and the
+  // standing structures in a district. Picking one selects it (double-click or Zoom in goes inside).
+  const levelItems = (): { path: string }[] => {
+    const v = state.view;
+    if (!v) return [];
+    if (v.level === 'universe') return v.systems;
+    if (v.level === 'system') return v.bodies;
+    if (v.level === 'body') return v.sites;
+    return v.dwellings.filter((d) => d.built);
+  };
+  const itemLevel = (): string => {
+    const v = state.view;
+    return v?.level === 'system' ? 'body' : v?.level === 'body' ? 'site' : v?.level === 'site' ? 'dwelling' : 'system';
+  };
+  /** Index of the selected item among them, -1 when something else (or nothing) is selected. */
+  const curItem = () => levelItems().findIndex((it) => it.path === state.selPath);
+  function pickItem(i: number): void {
+    const items = levelItems();
+    if (items.length === 0) return;
+    select(items[Math.max(0, Math.min(items.length - 1, i))]!.path);
+  }
+  const pickLabel = h('label', null, 'System');
   const hintLine = h('div', { class: 'hint' });
   const bigTitle = h('div', { class: 'bigtitle' });
   const stateLine = h('div', { class: 'stateline' });
@@ -279,10 +300,10 @@ export function startApp(root: HTMLElement): void {
     h(
       'div',
       { class: 'row' },
-      h('label', null, 'System'),
-      h('button', { class: 'small', onclick: () => goView(`s${Math.max(0, curSys() - 1)}`) }, '◄'),
+      pickLabel,
+      h('button', { class: 'small', onclick: () => pickItem(curItem() - 1) }, '◄'),
       sysInput,
-      h('button', { class: 'small', onclick: () => goView(`s${curSys() + 1}`) }, '►'),
+      h('button', { class: 'small', onclick: () => pickItem(curItem() + 1) }, '►'),
     ),
     hintLine,
     bigTitle,
@@ -561,7 +582,9 @@ export function startApp(root: HTMLElement): void {
 
   function renderStatus(): void {
     const v = state.view;
-    sysInput.value = String(curSys());
+    pickLabel.textContent = t(`level.${itemLevel()}`);
+    sysInput.value = curItem() >= 0 ? String(curItem()) : '';
+    sysInput.max = String(Math.max(0, levelItems().length - 1));
     hintLine.textContent = `Generating from seed "${state.seed}" — nothing is stored except what you change.`;
     if (v) {
       const last = v.trail[v.trail.length - 1]!;
@@ -752,13 +775,18 @@ export function startApp(root: HTMLElement): void {
               }
             : null,
           h('td', { class: 'k' }, label),
-          h('td', { class: 'v' }, fieldValue(f.value, f.vocab)),
+          h(
+            'td',
+            { class: 'v' },
+            fieldValue(f.value, f.vocab),
+            f.range ? h('span', { class: 'range' }, ` (${t('field.min')} ${f.range.min} · ${t('field.max')} ${f.range.max}${f.range.perYear ? ` ${t('field.per_yr')}` : ''})`) : null,
+          ),
         ),
       );
     }
     resultsBody.append(h('table', { class: 'kv wide' }, body));
     if (active) {
-      resultsBody.append(h('div', { class: 'section-title' }, t(`field.${active.label}`)), lineChart(t(`field.${active.label}`), active.points, fmtTime));
+      resultsBody.append(h('div', { class: 'section-title' }, `${t(`field.${active.label}`)}${active.perYear ? ` (${t('field.per_year')})` : ''}`), lineChart(t(`field.${active.label}`), active.points, fmtTime));
     }
     // In a household's own list the family name is the household's, so it is left off unless it differs.
     const listName = (c: RecordChild, parent: RecordData): string => {
@@ -907,6 +935,7 @@ export function startApp(root: HTMLElement): void {
     renderResults();
     renderReadout();
     renderButtons();
+    renderStatus();
   }
 
   function goView(path: string, selectPath: string | null = null): void {

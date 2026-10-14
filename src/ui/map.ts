@@ -22,7 +22,6 @@ interface HitItem {
 const TAU = Math.PI * 2;
 /** Night shading. Near-neutral on purpose: a blue tint over grey rock reads as ocean. */
 const NIGHT_TINT = '8,8,14';
-const NATIVE_SCALE = { universe: 4, system: 4, body: 8, site: 10 } as const;
 
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -97,9 +96,7 @@ export class MapCanvas {
       { class: 'mapbtns' },
       btn('+', 'Zoom in', () => this.zoomAt(1.4, this.cssW / 2, this.cssH / 2)),
       btn('-', 'Zoom out', () => this.zoomAt(1 / 1.4, this.cssW / 2, this.cssH / 2)),
-      btn('1:1', 'Native scale', () => this.oneToOne()),
       btn('Fit', 'Fit to window', () => this.fit()),
-      btn('↻', 'Recenter', () => this.fit()),
     );
     this.root = h('div', { class: 'mapwrap' }, this.canvas, buttons);
 
@@ -186,11 +183,6 @@ export class MapCanvas {
     this.ox = (this.cssW - w * this.scale) / 2 - b.x0 * this.scale;
     this.oy = (this.cssH - hgt * this.scale) / 2 - b.y0 * this.scale;
     if (redraw) this.redraw();
-  }
-
-  private oneToOne(): void {
-    if (!this.view) return;
-    this.zoomAt(NATIVE_SCALE[this.view.level] / this.scale, this.cssW / 2, this.cssH / 2);
   }
 
   private zoomAt(factor: number, cx: number, cy: number): void {

@@ -224,7 +224,7 @@ export class SiteLife {
   /** The week each dwelling is finished (-1: a reserve plot, given a week when homes are full and cannot grow). */
   private readonly builtWeek: number[];
   /** Buildings that fell into ruin (empty for years in a place in decline); never rebuilt. */
-  private readonly ruined: boolean[];
+  private readonly ruinedWeek: number[];
   /** Reserve plots the town's need has started (not the ones scheduled at layout). */
   private readonly started: boolean[];
   /** Consecutive weeks a standing home has been empty. */
@@ -252,7 +252,7 @@ export class SiteLife {
     this.plot = data.dwellings.map((d) => d.plot);
     this.builtWeek = data.dwellings.map((d) => d.built ?? 0);
     for (const d of data.dwellings) this.paintRect(d);
-    this.ruined = data.dwellings.map(() => false);
+    this.ruinedWeek = data.dwellings.map(() => -1);
     this.started = data.dwellings.map(() => false);
     this.emptyWeeks = data.dwellings.map(() => 0);
     this.fullWeeks = data.dwellings.map(() => 0);
@@ -401,10 +401,20 @@ export class SiteLife {
     return this.builtWeek[dwelling]!;
   }
 
+  /** How many dwellings stood at the given week (history: reserve plots count from the week they were finished). */
+  standingAt(week: number): number {
+    let n = 0;
+    for (let d = 0; d < this.builtWeek.length; d++) {
+      const w = this.builtWeek[d]!;
+      if (w >= 0 && w <= week && !(this.ruinedWeek[d]! >= 0 && this.ruinedWeek[d]! <= week)) n++;
+    }
+    return n;
+  }
+
   /** Whether a dwelling stands at the given week. */
   isBuilt(dwelling: number, week: number = this.week): boolean {
     const w = this.builtWeek[dwelling]!;
-    return w >= 0 && w <= week && !this.ruined[dwelling]; // -1: held in reserve until the town needs it
+    return w >= 0 && w <= week && this.ruinedWeek[dwelling]! < 0; // -1: held in reserve until the town needs it
   }
 
   /** People a dwelling holds at most right now; none for works and the hall. */
@@ -707,7 +717,7 @@ export class SiteLife {
       if (!this.isBuilt(d, week) || this.kinds[d] === 'hall') return;
       if (this.kinds[d] === 'home') this.emptyWeeks[d] = g.length === 0 ? this.emptyWeeks[d]! + 1 : 0;
       const gone = this.kinds[d] === 'home' ? this.emptyWeeks[d]! > 52 * 8 && fortune < 0.5 : g.length === 0 && fortune < 0.15;
-      if (gone && roll(base, week, d, 28) < 1 / (52 * 4)) this.ruined[d] = true;
+      if (gone && roll(base, week, d, 28) < 1 / (52 * 4)) this.ruinedWeek[d] = week;
     });
 
     // Households arriving from outside into vacant homes. The more homes stand empty, the likelier one fills.
@@ -795,8 +805,6 @@ export interface SeriesPoint {
  * birth, death and move ticks, so history is available however late you look. Empty until a week has run.
  */
 export function livingSeries(life: SiteLife, dwelling: number | null, offset = 0, points = 96): SeriesPoint[] {
-  const W = life.week;
-  if (W < 1) return [];
   const count = (week: number): number => {
     const t = week * TICKS_PER_WEEK;
     let v = 0;
@@ -806,6 +814,48 @@ export function livingSeries(life: SiteLife, dwelling: number | null, offset = 0
     }
     return v + offset;
   };
+  return sampleSeries(life.week, count, points);
+}
+
+/** A district measure over time: standing dwellings, or births and deaths per year (the rate over each stretch). */
+export function districtSeries(life: SiteLife, kind: 'dwellings' | 'births' | 'deaths', points = 96): SeriesPoint[] {
+  const count = (week: number): number => {
+    const t = week * TICKS_PER_WEEK;
+    if (kind === 'dwellings') return life.standingAt(week);
+    let n = 0;
+    for (const p of life.people) {
+      if (kind === 'births' ? p.mother !== null && p.since > 0 && p.birthTick === p.since && p.birthTick <= t : p.deathTick !== null && p.deathTick <= t) n++;
+    }
+    return n;
+  };
+  return kind === 'dwellings' ? sampleSeries(life.week, count, points) : rateSeries(life.week, count, points);
+}
+
+/** A running total turned into a rate: events per year over each stretch of a fixed grid (a final stretch under 4 weeks is left out). */
+function rateSeries(W: number, total: (week: number) => number, points: number): SeriesPoint[] {
+  if (W < 1) return [];
+  const n = Math.max(2, Math.floor(points));
+  let step = 1;
+  while (step * (n - 1) < W) step *= 2;
+  const out: SeriesPoint[] = [];
+  let from = 0;
+  let was = total(0);
+  for (let end = step; ; end += step) {
+    const to = Math.min(end, W);
+    if (to - from >= 4 || (to - from > 0 && out.length === 0)) {
+      const now = total(to);
+      out.push({ t: to * TICKS_PER_WEEK, v: Math.round(((now - was) * 520) / (to - from)) / 10 });
+      was = now;
+      from = to;
+    }
+    if (to >= W) break;
+  }
+  return out;
+}
+
+/** Samples `count(week)` on the fixed grid described below. Empty until a week has run. */
+function sampleSeries(W: number, count: (week: number) => number, points: number): SeriesPoint[] {
+  if (W < 1) return [];
   // Points sit on a fixed grid (a power-of-two number of weeks apart) and each one is the average headcount over the
   // bucket it closes, so a finished stretch of the line does not change as time advances (until the spacing doubles,
   // when the whole line is resampled once): a one-week dip does not flicker in and out of the sampling. The first and

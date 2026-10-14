@@ -7,6 +7,7 @@ export const BASE_WORDS: Record<string, string> = {
   'level.system': 'System',
   'level.body': 'Body',
   'level.site': 'Site',
+  'level.dwelling': 'Structure',
 
   'star.dim': 'Dim star',
   'star.mid': 'Mid star',
@@ -103,6 +104,10 @@ export const BASE_WORDS: Record<string, string> = {
   'field.births': 'Births',
   'field.deaths': 'Deaths',
   'field.condition': 'Condition',
+  'field.min': 'min',
+  'field.per_year': 'per year',
+  'field.per_yr': '/yr',
+  'field.max': 'max',
   'field.output': 'Output',
   'field.age': 'Age',
   'field.sex': 'Sex',

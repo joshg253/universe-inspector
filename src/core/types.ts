@@ -185,6 +185,8 @@ export interface RecordField {
   /** if set, the value is an id the pack translates as `${vocab}.${value}` */
   vocab?: string;
   feature?: FeatureId;
+  /** For a level that moves over time (not a running total): the lowest and highest it has been. */
+  range?: { min: number; max: number; perYear?: boolean };
 }
 
 export interface RecordChild {
@@ -210,6 +212,8 @@ export interface RecordLinks {
 /** A value over time, for a line chart. `label` is a field word key; `t` is in ticks. */
 export interface RecordChart {
   label: string;
+  /** The values are a rate per year, not a level. */
+  perYear?: boolean;
   points: { t: number; v: number }[];
 }
 

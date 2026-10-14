@@ -390,7 +390,9 @@ table.kv td.k {
 }
 
 table.kv.wide td.k {
-  min-width: 170px;
+  min-width: 0;
+  width: 1%;
+  white-space: nowrap;
 }
 
 .skin-flat table.kv td.k {
@@ -1661,4 +1663,10 @@ table.kv tr.statlink td.k {
 
 table.kv tr.statlink.on td {
   font-weight: bold;
+}
+
+.range {
+  opacity: 0.65;
+  font-size: 0.9em;
+  font-weight: normal;
 }

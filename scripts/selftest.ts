@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
 import { orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
-import { SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, residenceAt, applyLife } from '../src/core/life';
+import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, residenceAt, applyLife } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
 import { rngFor } from '../src/core/rng';
@@ -631,6 +631,15 @@ assert.equal(viewLevel('s1/b2'), 'body');
             if (l.isBuilt(i)) reserveUsed++;
           }
         });
+        // The graphs end at the live numbers: totals so far, and the dwellings that stand.
+        const lastOf = (kind: 'dwellings') => districtSeries(l, kind).at(-1)!.v;
+        // Births and deaths are a rate per year: over the whole run the rate times the years is about the total.
+        for (const [kind, total] of [['births', l.totals.births], ['deaths', l.totals.deaths]] as const) {
+          const pts = districtSeries(l, kind);
+          assert.ok(pts.length > 2 && pts.every((p) => p.v >= 0), 'a rate graph has points');
+          assert.ok(Math.abs(pts.reduce((n, p, i) => n + p.v * (((p.t - (pts[i - 1]?.t ?? 0)) / TICKS_PER_WEEK) / 52), 0) - total) <= total * 0.02 + 8, `the ${kind} rate adds up to the total`);
+        }
+        assert.equal(lastOf('dwellings'), sd.dwellings.filter((_, i) => l.isBuilt(i)).length, 'the dwellings graph ends at what stands');
         const jump = new SiteLife(s, sd);
         jump.advanceTo(52 * 300);
         assert.equal(jump.living, l.living, 'jumping equals watching with later buildings');
