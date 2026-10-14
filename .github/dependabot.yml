@@ -1,0 +1,22 @@
+# Dependabot opens pull requests for outdated dependencies; nothing merges by itself (merging is the owner's call).
+# Dependencies are exact versions (.npmrc save-exact), so a bump is always a visible change in package.json.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      dev-tooling:
+        dependency-type: development
+        update-types: [minor, patch]
+    ignore:
+      # @types/node tracks the Node major in .nvmrc, not the latest.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 2
