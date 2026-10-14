@@ -4,7 +4,7 @@ import { YEAR } from './time';
 import { rngFor, makeNoise } from './rng';
 import { parsePath } from './path';
 import { layoutTown } from './town';
-import { SiteLife, ageAt, capacityOf, livingSeries, type Person, type SiteLifeSeed } from './life';
+import { SiteLife, ageAt, capacityOf, livingSeries, visibleCells, type Person, type SiteLifeSeed } from './life';
 import type { DeltaStore } from './deltas';
 import type {
   AnomalySummary,
@@ -374,6 +374,7 @@ function siteCore(seed: string, si: number, bi: number, ti: number): SiteCore {
         door: b.door,
         builtWeek: b.built,
         built: b.built === 0,
+        track: b.track,
         plot: b.plot,
         capacity: b.kind === 'home' || b.kind === 'shop' ? capacityOf(b.w * b.h) : 0,
       };
@@ -400,7 +401,7 @@ export function genSite(seed: string, si: number, bi: number, ti: number, deltas
     bodyKind: body.meta.kind,
     w: SITE_N,
     h: SITE_N,
-    cells: core.cells,
+    cells: visibleCells(core.cells, core.dwellings),
     dwellings: core.dwellings.map((d) => ({ ...d, inspected: deltas.isInspected(d.path) })),
     plots: core.plots,
     dayLength: body.meta.dayLength,
@@ -564,7 +565,7 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
       const sc = siteCore(seed, si, bi, last.i);
       const life = live?.life ?? null;
       const residents = life ? life.living : sc.dwellings.reduce((n, d) => n + d.residents, 0);
-      const standing = sc.dwellings.filter((d) => d.builtWeek <= (life?.week ?? 0)).length;
+      const standing = sc.dwellings.filter((d, i) => (life ? life.isBuilt(i) : d.builtWeek === 0)).length;
       return {
         path,
         kind: 'site',

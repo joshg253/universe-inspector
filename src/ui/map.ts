@@ -564,7 +564,9 @@ export class MapCanvas {
       ctx.strokeStyle = 'rgba(255,255,255,0.22)';
       ctx.lineWidth = 1;
       for (const p of v.plots) {
-        if (p.dwelling < 0 || !v.dwellings[p.dwelling]?.built) {
+        const own = p.dwelling >= 0 ? v.dwellings[p.dwelling] : undefined;
+        if (own && !own.built && own.builtWeek < 0) continue; // held in reserve: no plot until it is wanted
+        if (!own?.built) {
           ctx.fillStyle = 'rgba(255,255,255,0.07)';
           ctx.fillRect(X(p.x), Y(p.y), p.w * s, p.h * s);
         }

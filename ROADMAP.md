@@ -124,15 +124,39 @@ progression through ages, all deterministic from the seed. You watch and inspect
       Needs housing capacity first.
 - [~] **New buildings (matters more than growing existing ones):** done: part of the plots are built on only later, on a
       schedule fixed at layout (the building exists in the list from the start with a `builtWeek`; the map hides it
-      until then), and the households that arrive or found a home fill it. Left: new buildings that respond to need
-      (full homes, no vacancy) instead of a fixed schedule, placed by a deterministic scan with a roll from (week,
-      district) and appended (existing `d<n>` never move); a kind chooser by need (shops and works, with the age
-      catalog); growth that continues once every plot is used (infill, subdivision, land beyond the town).
+      until then), and the households that arrive or found a home fill it; reserve plots (`built: -1`: about 40% of the in-town plots
+      over, half of every big in-town plot split in two, and some country plots) are hidden, with their footpaths, until
+      one is started (finished 20 to 51 weeks on, nearest first, a home first) when full homes that cannot grow
+      outnumber what is under construction, so a town spreads outward; the dwelling list is fixed at layout, so the supply is
+      bounded (at most 170 buildings per district; country plots within 2.2R are cut small and held in reserve). Places can fill
+      every plot, or wither: about a quarter go into decline (fortune halves every 25 to 85 years from year 100 to 700:
+      no arrivals, fewer births), empty homes fall into ruin, and plague years kill a third or more. Left (decline is a
+      stand-in, not yet tied to a depleted resource or a crop failure): a kind chooser by need (shops and works, with the age catalog: a full
+      town asks for a shop, not only a home); growth that continues once every reserve is used (a dwelling list that grows,
+      so subdivision happens at run time rather than being planned at layout).
 - [ ] **Resource-driven land use:** what a settlement farms or works comes from the planet map cells around it (soil and
       water for grain and animals, forest for timber, ore for mines), not a fixed share. Most towns start with farms of
       their own; one becomes a farm town where the farms take over the district, another drops most of its farms because
       it sits in forest and lives off that. A plot's open squares are then industry ground (grain, pasture, trees), not
       just a yard: farm plots show their crop, and a plot is rezoned as the economy moves.
+      Order: this comes before more growth work. A lucky town keeps building out the whole map with what its land supports
+      (farms and barns in a farm town, mines and smelters in a mine town, housing for the workers of each), so the dwelling
+      list must grow at run time (the layout's fixed reserve of at most 170 stops a town at its pool; Vikir sat at 47 for
+      28,000 years). An unlucky one goes to ruins, and a natural resource (soil, ore, forest) is finite and runs out,
+      which replaces the random decline and plague stand-ins as the main cause. Ruined plots may be resettled later.
+      Water is salt (ocean, sea: big connected regions) or fresh (lake, pond, river: small ones), nothing finer. Fresh
+      feeds irrigation and drinking, salt gives fishing coast and salt works; a settlement reads both from the planet cells
+      around it. Closed basins, dead seas and salt flats are a later refinement.
+      Resources are a small fixed list with an age each becomes usable (pure ids, packs name them): soil, pasture, timber,
+      fresh water, fish, stone from the first age; salt early; metal ore, coal later, then oil, silicon (sand and quartz: common, but worthless until the age that can use it), rare minerals. A deposit exists
+      from tick 0 in the planet draw but is unseen and unused until its age. Stocks are finite (ore, coal, oil) or renew
+      and can be overused (soil, timber); the draw-down is the only per-settlement state. First step: soil, timber, fresh
+      water, fish, stone, with salt as a coast tag; the deposit kinds wait for Ages.
+      A town dies when what it lives on is depleted or obsolete (flint, whale oil, a fuel an age moves past); the ruins stay
+      on the map, and when a later age makes something there valuable (ore, silicon, oil) it is resettled: boom, bust,
+      ghost town, boom. So a ruin keeps its plots as reserve, and a district's history has more than one founding.
+      No town is tagged lucky or unlucky: how it ends comes out of the draw (its land, its stocks, the events it meets).
+      The per-district `fortuneOf` flag in `life.ts` is a stand-in to remove once resources drive decline.
 - [ ] **Founding dates and growth:** every settlement gets a `founded` tick (negative = already existed, so old towns
       are more built-out at tick 0; positive = appears later) and every building a `builtTick` from the town's plan
       order and a growth curve. People only live in buildings that exist, so households found new homes and
@@ -143,6 +167,13 @@ progression through ages, all deterministic from the seed. You watch and inspect
       have stood empty (decay spreads like blight), so a dying edge becomes a ruined quarter. A ruin is a state of
       the building (kept in the fold: pure function of the week, processed in index order), not a deletion, so paths and
       the people who lived there stay valid. A lot can be rebuilt as the age allows (an old hut replaced by a house).
+      Condition is the state that drives it (0 to 100 per building, in the fold; the record's Condition is a static random
+      roll today). Empty: slow wear, with now and then a spike when vandals get in (more when others stand empty nearby,
+      or when the district has many young adults and little work). Lived in: it follows the household's care, a trait drawn
+      per household from its path (keeps it up, lets it go, or wrecks it), moved by money once there is any; repairs
+      lift it. Wear also follows who lives there: high turnover wears it fastest (short tenures, rentals), a family
+      that stays for decades mostly keeps it up (not always), and a home left to old people only goes downhill when they
+      lack the strength, skill or money to maintain it. At 0 it is a ruin. Replaces the "empty 8 years" ruin rule in `life.ts`.
       The tick-0 ruins in "New settlements" are the same state. Tied to the age ladder: early ages have trails and
       huts, later ages paths and structures, and the catalog says what replaces what.
 

@@ -44,6 +44,8 @@ const FOUND_HOUSEHOLD = 0.6;
 const FOUND_MAX_AGE = 35;
 /** Per vacant home per week: a household arrives from outside and moves in. Scales with vacancy, so it self-limits. */
 const HOUSEHOLD_PER_VACANT_WEEK = 0.012 / 52;
+/** Chance per week, for each full home that cannot grow, that a reserve plot is started. */
+const BUILD_PER_PRESSED_WEEK = 0.3 / 52;
 
 export type Sex = 'f' | 'm';
 
@@ -150,9 +152,30 @@ function frailty(base: number, id: number): number {
 /** The year's luck for the whole district: now and then an epidemic or famine year, sometimes a kind one. */
 function seasonOf(base: number, week: number): { deaths: number; births: number } {
   const r = roll(base, Math.floor(week / 52), 0, 14);
+  if (r < 0.008) return { deaths: 80, births: 0.2 }; // a plague year: a third or more of the district dies
   if (r < 0.06) return { deaths: 3, births: 0.7 };
   if (r > 0.9) return { deaths: 0.8, births: 1.15 };
   return { deaths: 1, births: 1 };
+}
+
+/**
+ * The district's fortune, 1 normal. About a quarter of places go into decline some time in the first 700 years (the soil
+ * wears out, the ore or the forest is gone): fortune halves every 25 to 85 years from then, so households stop arriving,
+ * births fall, and the place fades. Not tied to a resource yet: a stand-in for the economy.
+ */
+function fortuneOf(base: number, week: number): number {
+  if (roll(base, 0, 0, 29) >= 0.25) return 1;
+  const startYear = 100 + Math.floor(roll(base, 0, 1, 29) * 600);
+  const half = 25 + roll(base, 0, 2, 29) * 60;
+  const years = week / 52;
+  if (years <= startYear) return 1;
+  // 2^-t from basic arithmetic only (exactly rounded, the same in every engine): halve per whole half-life, then a straight
+  // line across the rest.
+  const t = (years - startYear) / half;
+  const n = Math.min(60, Math.floor(t));
+  let p = 1;
+  for (let i = 0; i < n; i++) p *= 0.5;
+  return p * (1 - (t - Math.floor(t)) / 2);
 }
 
 export interface SiteLifeSeed {
@@ -166,7 +189,7 @@ export interface SiteLifeSeed {
     y: number;
     w: number;
     h: number;
-    /** The week it is finished; absent or 0: standing from the start. Until then nobody lives there and it does not grow. */
+    /** The week it is finished; absent or 0: standing from the start; -1: held in reserve until the town needs it. Until then nobody lives there and it does not grow. */
     built?: number;
     /** The parcel it stands on; a home grows only inside it. Absent: no bound. */
     plot?: { x: number; y: number; w: number; h: number };
@@ -198,8 +221,14 @@ export class SiteLife {
   private readonly extra: Cell[][];
   private readonly area: number[];
   private readonly origin: { x: number; y: number; w: number; h: number }[];
-  /** The week each dwelling is finished. */
+  /** The week each dwelling is finished (-1: a reserve plot, given a week when homes are full and cannot grow). */
   private readonly builtWeek: number[];
+  /** Buildings that fell into ruin (empty for years in a place in decline); never rebuilt. */
+  private readonly ruined: boolean[];
+  /** Reserve plots the town's need has started (not the ones scheduled at layout). */
+  private readonly started: boolean[];
+  /** Consecutive weeks a standing home has been empty. */
+  private readonly emptyWeeks: number[];
   private readonly plot: ({ x: number; y: number; w: number; h: number } | undefined)[];
   /** 1 where any building stands. */
   private readonly occ: Uint8Array;
@@ -223,6 +252,9 @@ export class SiteLife {
     this.plot = data.dwellings.map((d) => d.plot);
     this.builtWeek = data.dwellings.map((d) => d.built ?? 0);
     for (const d of data.dwellings) this.paintRect(d);
+    this.ruined = data.dwellings.map(() => false);
+    this.started = data.dwellings.map(() => false);
+    this.emptyWeeks = data.dwellings.map(() => 0);
     this.fullWeeks = data.dwellings.map(() => 0);
     this.boxedIn = data.dwellings.map(() => false);
     this.finish = data.dwellings.map(() => 0);
@@ -359,9 +391,20 @@ export class SiteLife {
     return this.extra[dwelling]!;
   }
 
+  /** The district's cells as laid out (footpaths of buildings finished later included). */
+  get layoutCells(): Uint8Array {
+    return this.grid.cells;
+  }
+
+  /** The week a dwelling is finished now: -1 while it is a reserve nobody has started. */
+  builtWeekOf(dwelling: number): number {
+    return this.builtWeek[dwelling]!;
+  }
+
   /** Whether a dwelling stands at the given week. */
   isBuilt(dwelling: number, week: number = this.week): boolean {
-    return this.builtWeek[dwelling]! <= week;
+    const w = this.builtWeek[dwelling]!;
+    return w >= 0 && w <= week && !this.ruined[dwelling]; // -1: held in reserve until the town needs it
   }
 
   /** People a dwelling holds at most right now; none for works and the hall. */
@@ -503,12 +546,13 @@ export class SiteLife {
     const season = seasonOf(base, week);
     // Crowding: a district that has outgrown its starting population births and receives fewer; one that has shrunk,
     // more. Keeps long runs from running away to the building cap or dying out.
-    const crowd = Math.max(0.2, Math.min(1.3, 1 + (this.initial - this.living) / Math.max(1, this.initial)));
+    const fortune = fortuneOf(base, week);
+    const crowd = Math.max(0.2, Math.min(1.3, 1 + (this.initial - this.living) / Math.max(1, this.initial))) * fortune;
 
     // Deaths.
     const home: Person[][] = this.kinds.map(() => []);
     for (const p of this.alive) {
-      if (roll(base, week, p.id, 1) < deathChance(ageAt(p, tick)) * frailty(base, p.id) * season.deaths) {
+      if (roll(base, week, p.id, 1) < deathChance(ageAt(p, tick)) * frailty(base, p.id) * season.deaths * (2 - fortune)) {
         p.deathTick = tick;
         emit('death', p.residence);
       } else {
@@ -635,11 +679,35 @@ export class SiteLife {
       }
     });
 
+    // Need: when homes that are full and cannot grow any more outnumber what is being built, a reserve plot is started (a home
+    // first, nearest the center first) and finished some weeks on.
+    let pressed = 0;
+    let underway = 0;
+    home.forEach((g, d) => {
+      if (this.started[d] && this.builtWeek[d]! > week) underway++;
+      else if (this.kinds[d] === 'home' && this.boxedIn[d] && g.length >= this.capacity(d)) pressed++;
+    });
+    if (pressed > underway && roll(base, week, 0, 24) < pressed * BUILD_PER_PRESSED_WEEK) {
+      let pick = -1;
+      for (let d = 0; d < this.builtWeek.length && pick < 0; d++) if (this.builtWeek[d] === -1 && this.kinds[d] === 'home') pick = d;
+      for (let d = 0; d < this.builtWeek.length && pick < 0; d++) if (this.builtWeek[d] === -1) pick = d;
+      if (pick >= 0) this.builtWeek[pick] = week + 20 + Math.floor(roll(base, week, 1, 27) * 32);
+      if (pick >= 0) this.started[pick] = true;
+    }
+
     // A home finished this week is built because someone needs it: a household arrives with it.
     home.forEach((g, d) => {
       if ((this.kinds[d] !== 'home' && this.kinds[d] !== 'shop') || this.builtWeek[d] !== week || g.length > 0) return; // a shop gets its keeper's household
       this.arrive(d, week, tick, emit);
       home[d] = this.alive.filter((p) => p.residence === d);
+    });
+
+    // A place in decline: homes that stay empty for years fall into ruin, and when it is nearly gone so do the workplaces.
+    home.forEach((g, d) => {
+      if (!this.isBuilt(d, week) || this.kinds[d] === 'hall') return;
+      if (this.kinds[d] === 'home') this.emptyWeeks[d] = g.length === 0 ? this.emptyWeeks[d]! + 1 : 0;
+      const gone = this.kinds[d] === 'home' ? this.emptyWeeks[d]! > 52 * 8 && fortune < 0.5 : g.length === 0 && fortune < 0.15;
+      if (gone && roll(base, week, d, 28) < 1 / (52 * 4)) this.ruined[d] = true;
     });
 
     // Households arriving from outside into vacant homes. The more homes stand empty, the likelier one fills.
@@ -756,13 +824,24 @@ export function livingSeries(life: SiteLife, dwelling: number | null, offset = 0
   return out;
 }
 
+/**
+ * The cells with the footpath of each building that is finished later: laid down once it stands, otherwise put back to what
+ * the cell was (a path is carved at layout for buildings not standing yet). Always starts from layout cells, never a view's.
+ */
+export function visibleCells(cells: Uint8Array, dwellings: { built: boolean; track?: number[] }[]): Uint8Array {
+  let out = cells;
+  for (const d of dwellings) {
+    if (d.built || !d.track) continue;
+    if (out === cells) out = cells.slice();
+    for (const e of d.track) out[e >> 3] = e & 7;
+  }
+  return out;
+}
+
 /** The district view with live headcounts and footprints (homes grow). The settlement's population is the people living now. */
 export function applyLife(view: SiteView, life: SiteLife): SiteView {
   const counts = new Array<number>(view.dwellings.length).fill(0);
   for (const p of life.people) if (p.deathTick === null) counts[p.residence]!++;
-  return {
-    ...view,
-    population: life.living,
-    dwellings: view.dwellings.map((d, i) => ({ ...d, extra: [...life.extension(i)], capacity: life.capacity(i), built: life.isBuilt(i), residents: counts[i] ?? d.residents })),
-  };
+  const dwellings = view.dwellings.map((d, i) => ({ ...d, extra: [...life.extension(i)], capacity: life.capacity(i), built: life.isBuilt(i), builtWeek: life.builtWeekOf(i), residents: counts[i] ?? d.residents }));
+  return { ...view, population: life.living, cells: visibleCells(life.layoutCells, dwellings), dwellings };
 }
