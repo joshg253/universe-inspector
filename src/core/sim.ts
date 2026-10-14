@@ -93,6 +93,22 @@ export class Sim {
     return events;
   }
 
+  /**
+   * Move the clock to any tick. Going back drops the folded districts: they are refolded from tick 0 the next time they are
+   * looked at, which gives the same people as a district watched all the way to that tick.
+   */
+  goto(tick: number): SimEvent[] {
+    const to = Math.max(0, Math.floor(tick));
+    if (to >= this.tick) return this.advance(to - this.tick);
+    // Only a district folded past the target is dropped; the rest are not ahead of it and stay as they are.
+    const week = Math.floor(to / TICKS_PER_WEEK);
+    for (const [path, life] of this.lives) if (life.week > week) this.lives.delete(path);
+    this.tick = to;
+    if (this.watchSite) this.lifeFor(this.watchSite);
+    this.lifeVersion++;
+    return [];
+  }
+
   private eventsAt(tick: number): SimEvent[] {
     const r = rngFor(this.seed, `ev/${this.focus}`, String(tick));
     if (!r.chance(0.4)) return [];

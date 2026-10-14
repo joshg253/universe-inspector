@@ -38,11 +38,12 @@ export type ToWorker =
   | { type: 'view'; path: string }
   | { type: 'record'; path: string }
   | { type: 'step'; n?: number }
+  | { type: 'goto'; tick: number }
   | { type: 'speed'; index: number }
   | { type: 'delta'; path: string; patch: { inspected?: boolean } };
 
 export type FromWorker =
   | { type: 'view'; view: View }
   | { type: 'record'; record: RecordData }
-  | { type: 'tick'; tick: number; dyn: Dyn | null; events: SimEvent[]; tps: number; speed: number }
+  | { type: 'tick'; tick: number; dyn: Dyn | null; events: SimEvent[]; tps: number; speed: number; maxTick: number }
   | { type: 'error'; message: string };

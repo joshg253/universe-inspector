@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
 import { orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
-import { SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, residenceAt, applyLife } from '../src/core/life';
+import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, residenceAt, applyLife } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
 import { rngFor } from '../src/core/rng';
@@ -274,6 +274,31 @@ assert.equal(viewLevel('s1/b2'), 'body');
     c.advance(3 * TICKS_PER_YEAR + 77 - 5003);
     assert.equal(c.tick, a.tick);
     assert.equal(json(c.lifeFor(site.path)!.people), json(a.lifeFor(site.path)!.people), 'chained jumps equal stepping');
+  }
+
+  // Rewinding (the time scrubber) gives the same people as a run that never went further.
+  {
+    const far = new Sim(seed);
+    far.setFocusFromPath(site.path);
+    far.advance(5 * TICKS_PER_YEAR);
+    far.goto(2 * TICKS_PER_YEAR + 123);
+    const near = new Sim(seed);
+    near.setFocusFromPath(site.path);
+    near.advance(2 * TICKS_PER_YEAR + 123);
+    assert.equal(far.tick, near.tick);
+    assert.equal(json(far.lifeFor(site.path)!.people), json(near.lifeFor(site.path)!.people), 'going back equals never having gone on');
+    const same = json(far.lifeFor(site.path)!.people);
+    far.goto(far.tick);
+    assert.equal(json(far.lifeFor(site.path)!.people), same, 'going to the same tick changes nothing');
+    // Graphs and the pyramid: a short run has no one-week spike in a rate, and the pyramid adds up to the living.
+    const young = far.lifeFor(site.path)!;
+    const rate = districtSeries(young, 'deaths');
+    assert.ok(rate.length > 0 && rate[0]!.t >= 4 * TICKS_PER_WEEK, 'a rate is never scaled up from a stretch under four weeks');
+    const rec = genRecord(seed, site.path, new DeltaStore(), { tick: far.tick, life: young });
+    assert.equal((rec.pyramid!.f.concat(rec.pyramid!.m)).reduce((n, v) => n + v, 0), young.living, 'the pyramid adds up to the living');
+    far.goto(4 * TICKS_PER_YEAR);
+    near.advance(4 * TICKS_PER_YEAR - near.tick);
+    assert.equal(json(far.lifeFor(site.path)!.people), json(near.lifeFor(site.path)!.people), 'and forward again');
   }
 
   // The Sim reports the same world whether the district was watched from the start or only looked at later.
@@ -631,6 +656,15 @@ assert.equal(viewLevel('s1/b2'), 'body');
             if (l.isBuilt(i)) reserveUsed++;
           }
         });
+        // The graphs end at the live numbers: totals so far, and the dwellings that stand.
+        const lastOf = (kind: 'dwellings') => districtSeries(l, kind).at(-1)!.v;
+        // Births and deaths are a rate per year: over the whole run the rate times the years is about the total.
+        for (const [kind, total] of [['births', l.totals.births], ['deaths', l.totals.deaths]] as const) {
+          const pts = districtSeries(l, kind);
+          assert.ok(pts.length > 2 && pts.every((p) => p.v >= 0), 'a rate graph has points');
+          assert.ok(Math.abs(pts.reduce((n, p, i) => n + p.v * (((p.t - (pts[i - 1]?.t ?? 0)) / TICKS_PER_WEEK) / 52), 0) - total) <= total * 0.02 + 8, `the ${kind} rate adds up to the total`);
+        }
+        assert.equal(lastOf('dwellings'), sd.dwellings.filter((_, i) => l.isBuilt(i)).length, 'the dwellings graph ends at what stands');
         const jump = new SiteLife(s, sd);
         jump.advanceTo(52 * 300);
         assert.equal(jump.living, l.living, 'jumping equals watching with later buildings');

@@ -29,7 +29,7 @@ progression through ages, all deterministic from the seed. You watch and inspect
 - [ ] Planet-level settlement lists show the tick-0 population, not the live one
 - [ ] Towns hold 5 to 180 people (a district is 64x64 cells, at most 10 per building) while the size labels (city,
       metropolis) come from the notional generated size; bigger towns need a bigger or coarser district
-- [ ] Phone/narrow layout is only a stacked fallback, not tuned for touch
+- [ ] Narrow layout: the map comes first, then the controls, but it is not tuned for touch (small buttons, no gestures)
 - [ ] Status and Record tabs don't react to selection (Results does)
 - [ ] Open on the universe level instead of system 0?
 
@@ -319,6 +319,9 @@ progression through ages, all deterministic from the seed. You watch and inspect
 
 
 (new ideas land here)
+
+- [ ] **More UI tools (left over):** a family-tree view for a person (parents, partner, children, grandchildren as a
+      diagram); condition on the hover card once buildings have it.
 
 - [ ] **Canon vs provisional (observation persistence):** inspecting something commits it. Today "inspect"
       only stores a boolean flag and the content is regenerated from the seed each time, so a generator

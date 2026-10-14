@@ -1,6 +1,7 @@
 import { lineChart } from './chart';
 import { depth, parentPath, parsePath } from '../core/path';
 import { DAY, YEAR } from '../core/time';
+import { TICKS_PER_WEEK } from '../core/life';
 import { BASE_TICKS, LADDER, SPEED_GLYPHS, STEP_GLYPH, spanLabel, speedTps, type FromWorker, type ToWorker } from '../core/protocol';
 import type { Dyn, FeatureId, RecordChild, RecordData, SimEvent, View } from '../core/types';
 import { DEFAULT_PACK_ID, PACKS, packOf } from '../packs';
@@ -147,6 +148,12 @@ export function startApp(root: HTMLElement): void {
     selPath: null as string | null,
     record: null as RecordData | null,
     tick: 0,
+    /** The furthest tick this run has reached: the scrubber goes back anywhere up to it. */
+    maxTick: 0,
+    /** Event kind the log is limited to ('' for all). */
+    logKind: '',
+    /** Column the structure list is sorted by (null: generated order). */
+    listSort: null as { col: 'name' | 'state'; dir: 1 | -1 } | null,
     speed: 0,
     tps: 0,
     dyn: null as Dyn | null,
@@ -223,9 +230,32 @@ export function startApp(root: HTMLElement): void {
     min: 0,
     step: 1,
     value: 0,
-    onchange: () => goView(`s${Math.max(0, Math.floor(Number(sysInput.value) || 0))}`),
+    onchange: () => pickItem(Math.floor(Number(sysInput.value) || 0)),
   });
-  const curSys = () => parsePath(state.viewPath)[0]?.i ?? 0;
+  // The picker steps through what the view holds: systems in the universe, bodies in a system, sites on a body, and the
+  // standing structures in a district. Picking one selects it (double-click or Zoom in goes inside).
+  const levelItems = (): { path: string }[] => {
+    const v = state.view;
+    if (!v) return [];
+    if (v.level === 'universe') return v.systems;
+    if (v.level === 'system') return v.bodies;
+    if (v.level === 'body') return v.sites;
+    return v.dwellings.filter((d) => d.built);
+  };
+  const itemLevel = (): string => {
+    const v = state.view;
+    return v?.level === 'system' ? 'body' : v?.level === 'body' ? 'site' : v?.level === 'site' ? 'dwelling' : 'system';
+  };
+  /** Index of the selected item among them, -1 when something else (or nothing) is selected. */
+  const curItem = () => levelItems().findIndex((it) => it.path === state.selPath);
+  /** `back`: stepping left from nothing (or from something else) lands on the last item rather than the first. */
+  function pickItem(i: number, back = false): void {
+    const items = levelItems();
+    if (items.length === 0) return;
+    if (back && curItem() < 0) i = items.length - 1;
+    select(items[Math.max(0, Math.min(items.length - 1, i))]!.path);
+  }
+  const pickLabel = h('label', null, 'System');
   const hintLine = h('div', { class: 'hint' });
   const bigTitle = h('div', { class: 'bigtitle' });
   const stateLine = h('div', { class: 'stateline' });
@@ -244,10 +274,21 @@ export function startApp(root: HTMLElement): void {
   const kInsp = kv('Inspected');
 
   const listBody = h('tbody');
+  // Click a column header to sort the list by it; click again to reverse, a third time to go back to generated order.
+  const listHeads: Record<string, HTMLElement> = {};
+  function listHead(col: 'name' | 'state', label: string): HTMLElement {
+    const th = h('th', { class: 'sortable', title: 'Sort', onclick: () => {
+      const s = state.listSort;
+      state.listSort = s?.col !== col ? { col, dir: 1 } : s.dir === 1 ? { col, dir: -1 } : null;
+      renderList();
+    } }, label);
+    listHeads[col] = th;
+    return th;
+  }
   const listBox = h(
     'div',
     { class: 'listbox' },
-    h('table', { class: 'list' }, h('thead', null, h('tr', null, h('th', null, 'Name'), h('th', null, 'State'))), listBody),
+    h('table', { class: 'list' }, h('thead', null, h('tr', null, listHead('name', 'Name'), listHead('state', 'State'))), listBody),
   );
   const helpLine = h(
     'div',
@@ -279,10 +320,10 @@ export function startApp(root: HTMLElement): void {
     h(
       'div',
       { class: 'row' },
-      h('label', null, 'System'),
-      h('button', { class: 'small', onclick: () => goView(`s${Math.max(0, curSys() - 1)}`) }, '◄'),
+      pickLabel,
+      h('button', { class: 'small', onclick: () => pickItem(curItem() - 1, true) }, '◄'),
       sysInput,
-      h('button', { class: 'small', onclick: () => goView(`s${curSys() + 1}`) }, '►'),
+      h('button', { class: 'small', onclick: () => pickItem(curItem() + 1) }, '►'),
     ),
     hintLine,
     bigTitle,
@@ -293,6 +334,30 @@ export function startApp(root: HTMLElement): void {
     helpLine,
   );
 
+  // Jump to a year, or scrub anywhere within what has run (going back refolds the district from the start).
+  const yearInput = h('input', { type: 'number', class: 'num', min: 0, step: 1, value: 0, title: 'Year to jump to' });
+  const goTo = (tick: number) => send({ type: 'goto', tick: Math.max(0, Math.round(tick)) });
+  yearInput.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') {
+      goTo((Number(yearInput.value) || 0) * YEAR);
+      yearInput.blur();
+    }
+  });
+  const scrub = h('input', { type: 'range', class: 'scrub', min: 0, max: 0, step: 1, value: 0, title: 'Scrub through time' });
+  // While dragged, the slider is the user's, and a drag sends the latest position at most every 120 ms.
+  let scrubbing = false;
+  let scrubTimer = 0;
+  scrub.addEventListener('pointerdown', () => (scrubbing = true));
+  window.addEventListener('pointerup', () => (scrubbing = false));
+  scrub.addEventListener('input', () => {
+    if (scrubTimer) return;
+    scrubTimer = window.setTimeout(() => {
+      scrubTimer = 0;
+      goTo(Number(scrub.value) * TICKS_PER_WEEK);
+    }, 120);
+  });
+  scrub.addEventListener('change', () => goTo(Number(scrub.value) * TICKS_PER_WEEK));
+
   // Zoom and time controls stay visible whichever tab is open.
   const controls = h(
     'div',
@@ -300,16 +365,26 @@ export function startApp(root: HTMLElement): void {
     h('div', { class: 'btnrow' }, btnOut, btnIn, btnInspect),
     h('div', { class: 'btnrow' }, btnStep, stepSize),
     h('div', { class: 'btnrow' }, ...speedBtns),
+    h('div', { class: 'btnrow' }, h('label', null, 'Year'), yearInput, h('button', { class: 'small', onclick: () => goTo((Number(yearInput.value) || 0) * YEAR) }, 'Go')),
+    h('div', { class: 'btnrow' }, scrub),
   );
 
   // --- Results / Record / Settings panels
   const resultsBody = h('div', { class: 'scroll' });
   panels.results.append(resultsBody);
   const logBody = h('div', { class: 'log' });
+  // Show one kind of event only (people's births and deaths drown out everything else in a big town).
+  const LOG_KINDS = ['birth', 'death', 'arrival', 'departure', 'exchange', 'mishap', 'gathering', 'discovery'] as const;
+  const logFilter = h(
+    'select',
+    { title: 'Show only one kind of event', onchange: () => ((state.logKind = logFilter.value), renderLog()) },
+    h('option', { value: '' }, 'All events'),
+    ...LOG_KINDS.map((k) => h('option', { value: k }, k[0]!.toUpperCase() + k.slice(1))),
+  );
   panels.record.append(
     h('div', { class: 'hint' }, 'Events from the system you are watching, newest first. Click a line to jump there.'),
     logBody,
-    h('div', { class: 'btnrow' }, h('button', { onclick: () => ((state.events = []), renderLog()) }, 'Clear')),
+    h('div', { class: 'btnrow' }, logFilter, h('button', { onclick: () => ((state.events = []), renderLog()) }, 'Clear')),
   );
   const settingsBody = h('div', { class: 'scroll' });
   panels.settings.append(settingsBody);
@@ -561,7 +636,9 @@ export function startApp(root: HTMLElement): void {
 
   function renderStatus(): void {
     const v = state.view;
-    sysInput.value = String(curSys());
+    pickLabel.textContent = t(`level.${itemLevel()}`);
+    sysInput.value = curItem() >= 0 ? String(curItem()) : '';
+    sysInput.max = String(Math.max(0, levelItems().length - 1));
     hintLine.textContent = `Generating from seed "${state.seed}" — nothing is stored except what you change.`;
     if (v) {
       const last = v.trail[v.trail.length - 1]!;
@@ -591,21 +668,29 @@ export function startApp(root: HTMLElement): void {
     clear(listBody);
     const v = state.view;
     if (!v) return;
-    const section = (title: string) =>
+    let pending: [string, string, string][] = [];
+    const flush = (): void => {
+      const s = state.listSort;
+      if (s) {
+        const k = s.col === 'name' ? 1 : 2;
+        pending.sort((a, b) => s.dir * a[k]!.localeCompare(b[k]!, undefined, { numeric: true }));
+      }
+      for (const [path, name, st] of pending) {
+        listBody.append(
+          h('tr', { class: state.selPath === path ? 'sel' : '', onclick: () => select(path), ondblclick: () => open(path) }, h('td', null, name), h('td', null, st)),
+        );
+      }
+      pending = [];
+    };
+    const section = (title: string) => {
+      flush();
       listBody.append(h('tr', { class: 'section' }, h('td', { colSpan: 2 }, title)));
-    const row = (path: string, name: string, st: string) =>
-      listBody.append(
-        h(
-          'tr',
-          {
-            class: state.selPath === path ? 'sel' : '',
-            onclick: () => select(path),
-            ondblclick: () => open(path),
-          },
-          h('td', null, name),
-          h('td', null, st),
-        ),
-      );
+    };
+    const row = (path: string, name: string, st: string) => pending.push([path, name, st]);
+    for (const [col, th] of Object.entries(listHeads)) {
+      const s = state.listSort;
+      th.textContent = (col === 'name' ? 'Name' : 'State') + (s?.col === col ? (s.dir === 1 ? ' ▲' : ' ▼') : '');
+    }
     if (v.level === 'universe') {
       section(t('list.universe'));
       for (const s of v.systems) {
@@ -638,6 +723,7 @@ export function startApp(root: HTMLElement): void {
         row(d.path, nm('dwelling', d.nameKey, d.kind), `${t(`dwelling.${d.kind}`)}${res}${d.inspected ? ' · ✓' : ''}`);
       }
     }
+    flush();
     listBody.querySelector('tr.sel')?.scrollIntoView({ block: 'nearest' });
   }
 
@@ -752,13 +838,37 @@ export function startApp(root: HTMLElement): void {
               }
             : null,
           h('td', { class: 'k' }, label),
-          h('td', { class: 'v' }, fieldValue(f.value, f.vocab)),
+          h(
+            'td',
+            { class: 'v' },
+            fieldValue(f.value, f.vocab),
+            f.range ? h('span', { class: 'range' }, ` (${t('field.min')} ${f.range.min} · ${t('field.max')} ${f.range.max}${f.range.perYear ? ` ${t('field.per_yr')}` : ''})`) : null,
+          ),
         ),
       );
     }
     resultsBody.append(h('table', { class: 'kv wide' }, body));
     if (active) {
-      resultsBody.append(h('div', { class: 'section-title' }, t(`field.${active.label}`)), lineChart(t(`field.${active.label}`), active.points, fmtTime));
+      resultsBody.append(h('div', { class: 'section-title' }, `${t(`field.${active.label}`)}${active.perYear ? ` (${t('field.per_year')})` : ''}`), lineChart(t(`field.${active.label}`), active.points, fmtTime));
+    }
+    const pyr = r.pyramid;
+    if (pyr && pyr.f.length > 0) {
+      const top = Math.max(1, ...pyr.f, ...pyr.m);
+      resultsBody.append(h('div', { class: 'section-title' }, 'Age and sex'));
+      const box = h('div', { class: 'pyramid' });
+      for (let i = pyr.f.length - 1; i >= 0; i--) {
+        const label = i === 9 ? `${i * pyr.step}+` : `${i * pyr.step}–${(i + 1) * pyr.step - 1}`;
+        box.append(
+          h(
+            'div',
+            { class: 'prow' },
+            h('span', { class: 'pbar f', style: `width:${(pyr.f[i]! / top) * 100}%`, title: `${pyr.f[i]} female` }),
+            h('span', { class: 'plabel' }, label),
+            h('span', { class: 'pbar m', style: `width:${(pyr.m[i]! / top) * 100}%`, title: `${pyr.m[i]} male` }),
+          ),
+        );
+      }
+      resultsBody.append(box);
     }
     // In a household's own list the family name is the household's, so it is left off unless it differs.
     const listName = (c: RecordChild, parent: RecordData): string => {
@@ -797,8 +907,8 @@ export function startApp(root: HTMLElement): void {
   function renderLog(): void {
     logDirty = false;
     clear(logBody);
-    const shown = state.events.slice(-200).reverse();
-    if (shown.length === 0) logBody.append(h('div', { class: 'hint' }, 'No events yet.'));
+    const shown = state.events.filter((e) => !state.logKind || e.kind === state.logKind).slice(-200).reverse();
+    if (shown.length === 0) logBody.append(h('div', { class: 'hint' }, state.logKind ? 'No events of this kind yet.' : 'No events yet.'));
     for (const e of shown) {
       logBody.append(
         h(
@@ -907,6 +1017,25 @@ export function startApp(root: HTMLElement): void {
     renderResults();
     renderReadout();
     renderButtons();
+    renderStatus();
+    syncUrl();
+  }
+
+  /** Keep the seed, view and selection in the address, so a reload or a shared link lands in the same place. */
+  function syncUrl(): void {
+    try {
+      const p = new URLSearchParams(location.search);
+      const set = (k: string, v: string) => (v ? p.set(k, v) : p.delete(k));
+      set('seed', state.seed);
+      set('view', state.viewPath);
+      set('sel', state.selPath ?? '');
+      for (const k of ['ticks', 'menu', 'dialog', 'tab']) p.delete(k); // one-shot parameters: a reload must not repeat them
+      set('skin', state.skin);
+      set('pack', state.packId);
+      history.replaceState(null, '', `${location.pathname}?${p}${location.hash}`);
+    } catch {
+      /* a sandboxed frame may refuse: the address is only a convenience */
+    }
   }
 
   function goView(path: string, selectPath: string | null = null): void {
@@ -945,6 +1074,7 @@ export function startApp(root: HTMLElement): void {
     state.view = null;
     state.dyn = null;
     persist();
+    state.maxTick = 0;
     send({ type: 'reset', seed });
     renderChrome();
     renderLog();
@@ -1000,6 +1130,11 @@ export function startApp(root: HTMLElement): void {
         break;
       case 'tick':
         state.tick = m.tick;
+        if (m.tick < state.tick) state.events = state.events.filter((e) => e.tick <= m.tick); // went back: later events are not yet
+        state.maxTick = m.maxTick;
+        scrub.max = String(Math.floor(state.maxTick / TICKS_PER_WEEK));
+        if (!scrubbing) scrub.value = String(Math.floor(m.tick / TICKS_PER_WEEK));
+        if (document.activeElement !== yearInput) yearInput.value = String(Math.floor(m.tick / YEAR));
         state.tps = m.tps;
         state.dyn = m.dyn;
         if (m.dyn && state.view && m.dyn.level === state.view.level) map.setDyn(m.dyn);
@@ -1023,8 +1158,11 @@ export function startApp(root: HTMLElement): void {
       return;
     }
     const target = e.target as HTMLElement;
-    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return;
-    if (e.key === ' ') {
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName) || target === splitter) return;
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      pickItem(curItem() + (e.key === 'ArrowRight' ? 1 : -1), e.key === 'ArrowLeft');
+    } else if (e.key === ' ') {
       e.preventDefault();
       if (target.tagName === 'BUTTON') target.blur();
       setSpeed(state.speed === 0 ? 1 : 0);

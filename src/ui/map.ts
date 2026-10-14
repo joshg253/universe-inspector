@@ -22,7 +22,6 @@ interface HitItem {
 const TAU = Math.PI * 2;
 /** Night shading. Near-neutral on purpose: a blue tint over grey rock reads as ocean. */
 const NIGHT_TINT = '8,8,14';
-const NATIVE_SCALE = { universe: 4, system: 4, body: 8, site: 10 } as const;
 
 function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -86,6 +85,8 @@ export class MapCanvas {
   private hits: HitItem[] = [];
   private drag: { x: number; y: number; ox: number; oy: number; moved: boolean } | null = null;
   private raf = 0;
+  private legend: HTMLElement;
+  private tip: HTMLElement;
 
   constructor(pack: Pack, private hooks: MapHooks) {
     this.pack = pack;
@@ -97,17 +98,18 @@ export class MapCanvas {
       { class: 'mapbtns' },
       btn('+', 'Zoom in', () => this.zoomAt(1.4, this.cssW / 2, this.cssH / 2)),
       btn('-', 'Zoom out', () => this.zoomAt(1 / 1.4, this.cssW / 2, this.cssH / 2)),
-      btn('1:1', 'Native scale', () => this.oneToOne()),
       btn('Fit', 'Fit to window', () => this.fit()),
-      btn('↻', 'Recenter', () => this.fit()),
     );
-    this.root = h('div', { class: 'mapwrap' }, this.canvas, buttons);
+    this.legend = h('div', { class: 'maplegend' });
+    this.tip = h('div', { class: 'maptip' });
+    this.root = h('div', { class: 'mapwrap' }, this.canvas, buttons, this.legend, this.tip);
 
     new ResizeObserver(() => this.resize()).observe(this.root);
     this.canvas.addEventListener('pointerdown', (e) => this.onDown(e));
     this.canvas.addEventListener('pointermove', (e) => this.onMove(e));
     this.canvas.addEventListener('pointerup', (e) => this.onUp(e));
     this.canvas.addEventListener('pointerleave', () => {
+      this.tip.style.display = 'none';
       if (!this.drag && this.hover) {
         this.hover = null;
         this.redraw();
@@ -188,11 +190,6 @@ export class MapCanvas {
     if (redraw) this.redraw();
   }
 
-  private oneToOne(): void {
-    if (!this.view) return;
-    this.zoomAt(NATIVE_SCALE[this.view.level] / this.scale, this.cssW / 2, this.cssH / 2);
-  }
-
   private zoomAt(factor: number, cx: number, cy: number): void {
     const next = Math.max(0.5, Math.min(160, this.scale * factor));
     const k = next / this.scale;
@@ -216,6 +213,7 @@ export class MapCanvas {
 
   private onMove(e: PointerEvent): void {
     if (this.drag) {
+      this.tip.style.display = 'none';
       const dx = e.clientX - this.drag.x;
       const dy = e.clientY - this.drag.y;
       if (!this.drag.moved && Math.hypot(dx, dy) > 3) this.drag.moved = true;
@@ -234,6 +232,35 @@ export class MapCanvas {
       this.hover = path;
       this.redraw();
     }
+    this.showTip(path, ...this.local(e));
+  }
+
+  /** A small card beside the pointer: what a building or settlement is, who is in it, how old it is. */
+  private showTip(path: string | null, x: number, y: number): void {
+    const v = this.view;
+    const lines: string[] = [];
+    if (path && v?.level === 'site') {
+      const d = v.dwellings.find((q) => q.path === path);
+      if (d?.built) {
+        lines.push(this.pack.name('dwelling', d.nameKey, d.kind));
+        const room = d.capacity > 0 ? `${d.residents} of ${d.capacity}` : `${d.residents}`;
+        lines.push(`${this.pack.t(`dwelling.${d.kind}`)} · ${d.w * d.h + (d.extra?.length ?? 0)} cells`);
+        if (d.kind === 'home' || d.kind === 'shop') lines.push(`${room} ${d.capacity > 0 ? 'residents' : ''}`.trim());
+        lines.push(d.builtWeek > 0 ? `Built year ${Math.floor(d.builtWeek / 52)}` : 'Stood from the start');
+      }
+    } else if (path && v?.level === 'body') {
+      const s = v.sites.find((q) => q.path === path);
+      if (s) lines.push(this.pack.name('site', s.nameKey, s.size), `${this.pack.t(`size.${s.size}`)} · ${s.population.toLocaleString('en-US')} people`);
+    }
+    if (lines.length === 0) {
+      this.tip.style.display = 'none';
+      return;
+    }
+    this.tip.replaceChildren(...lines.map((t, i) => h(i === 0 ? 'b' : 'div', null, t)));
+    this.tip.style.display = 'block';
+    const w = this.root.clientWidth;
+    this.tip.style.left = `${Math.min(x + 14, Math.max(0, w - 150))}px`;
+    this.tip.style.top = `${Math.max(0, Math.min(y + 14, this.root.clientHeight - 64))}px`;
   }
 
   private onUp(e: PointerEvent): void {
@@ -310,6 +337,37 @@ export class MapCanvas {
     this.redraw();
   }
 
+  /** What the colors mean in a district; hidden on the other levels. */
+  private drawLegend(v: View | null): void {
+    const show = v?.level === 'site' && this.marks['site.legend'] !== false;
+    this.legend.style.display = show ? '' : 'none';
+    if (!show) return;
+    const pal = this.pack.palette;
+    const t = (k: string) => this.pack.t(k);
+    const mid = (a: string, b: string) => {
+      const x = hexToRgb(a);
+      const y = hexToRgb(b);
+      return `rgb(${x.map((c, i) => Math.round((c + y[i]!) / 2)).join(',')})`;
+    };
+    const items: [string, string][] = [
+      [pal.dwelling.home, t('dwelling.home')],
+      [pal.dwelling.shop, t('dwelling.shop')],
+      [pal.dwelling.works, t('dwelling.works')],
+      [pal.dwelling.hall, t('dwelling.hall')],
+      [pal.road, t('legend.road')],
+      [mid(pal.road, pal.ground), t('legend.track')],
+      [pal.plaza, t('legend.plaza')],
+      [pal.water, t('legend.water')],
+      [pal.green, t('legend.green')],
+    ];
+    const key = items.map((i) => i.join('|')).join(';');
+    if (this.legend.dataset.key === key) return;
+    this.legend.dataset.key = key;
+    this.legend.replaceChildren(
+      ...items.map(([c, label]) => h('span', { class: 'lg' }, h('i', { style: `background:${c}` }), label)),
+    );
+  }
+
   private draw(): void {
     const ctx = this.ctx;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -317,6 +375,7 @@ export class MapCanvas {
     ctx.fillRect(0, 0, this.cssW, this.cssH);
     this.hits = [];
     const v = this.view;
+    this.drawLegend(v);
     if (!v) return;
     if (v.level === 'universe') this.drawUniverse(v);
     else if (v.level === 'system') this.drawSystem(v);

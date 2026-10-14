@@ -390,7 +390,9 @@ table.kv td.k {
 }
 
 table.kv.wide td.k {
-  min-width: 170px;
+  min-width: 0;
+  width: 1%;
+  white-space: nowrap;
 }
 
 .skin-flat table.kv td.k {
@@ -527,6 +529,94 @@ a.crumb {
   inset: 0;
   display: block;
   touch-action: none;
+}
+
+.scrub {
+  flex: 1;
+  min-width: 0;
+}
+
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.pyramid {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 6px;
+}
+
+.pyramid .prow {
+  display: grid;
+  grid-template-columns: 1fr 52px 1fr;
+  align-items: center;
+  gap: 4px;
+  height: 11px;
+}
+
+.pyramid .pbar {
+  display: block;
+  height: 9px;
+  min-width: 1px;
+}
+
+.pyramid .pbar.f {
+  justify-self: end;
+  background: #b0507a;
+}
+
+.pyramid .pbar.m {
+  background: #4a78b0;
+}
+
+.pyramid .plabel {
+  text-align: center;
+  font-size: 10px;
+  color: #404040;
+}
+
+.maptip {
+  display: none;
+  position: absolute;
+  z-index: 2;
+  padding: 3px 7px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: #f2f2f2;
+  background: rgba(0, 0, 0, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.maplegend {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  max-width: calc(100% - 16px);
+  padding: 3px 6px;
+  font-size: 11px;
+  color: #e8e8e8;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.maplegend .lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.maplegend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
 .mapbtns {
@@ -772,8 +862,12 @@ a.crumb {
   .splitter {
     display: none;
   }
+  /* On a phone the map comes first, then the controls below it. */
   .right {
-    min-height: 480px;
+    order: -1;
+    flex: none;
+    height: 70vh;
+    min-height: 360px;
   }
 }
 
@@ -1661,4 +1755,10 @@ table.kv tr.statlink td.k {
 
 table.kv tr.statlink.on td {
   font-weight: bold;
+}
+
+.range {
+  opacity: 0.65;
+  font-size: 0.9em;
+  font-weight: normal;
 }
