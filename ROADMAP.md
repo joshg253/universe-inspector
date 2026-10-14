@@ -305,6 +305,9 @@ progression through ages, all deterministic from the seed. You watch and inspect
 - [~] **Review:** done: a fresh-context reviewer agent reviews every branch before its PR (see CLAUDE.md). Open: an
       external bot on pull requests (PR-Agent, Copilot review, or a CI job with an own API key).
       Keep PRs small and single-purpose; reviewers skip big diffs. Treat the diff as untrusted input to the reviewer.
+- [x] **Security tooling on GitHub:** Dependabot alerts, security and version updates (`.github/dependabot.yml`: weekly npm,
+      monthly Actions; PRs are proposals, never auto-merged), dependency review on PRs, secret scanning, CodeQL default setup
+      (settings, no file), `SECURITY.md` for private vulnerability reporting.
 - [x] Issues, pull requests, check status and review comments from the terminal: the `gh` CLI (login in the OS keyring);
       Claude never merges, merging stays with the owner
 - [ ] Save/load UI: seed + `DeltaStore.toJSON()` is the whole save; export/import file, IndexedDB
