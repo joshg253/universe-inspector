@@ -301,7 +301,7 @@ progression through ages, all deterministic from the seed. You watch and inspect
 - [~] Hosting: repo is on GitHub (`joshg253/universe-inspector`, moved from GitLab in October 2026; the Issue and MR history
       stays on GitLab), commits are SSH-signed
 - [x] **CI on GitHub Actions:** `.github/workflows/ci.yml` runs install, `npm test`, `npm run build` and an advisory `npm audit`
-      (Node from `.nvmrc`) on every branch push and pull request. Open: a Pages job for the static build (`vite.config.ts` has a relative base)
+      (Node from `.nvmrc`) on pushes to `main` and on pull requests. Open: a Pages job for the static build (`vite.config.ts` has a relative base)
 - [~] **Review:** done: a fresh-context reviewer agent reviews every branch before its PR (see CLAUDE.md). Open: an
       external bot on pull requests (PR-Agent, Copilot review, or a CI job with an own API key).
       Keep PRs small and single-purpose; reviewers skip big diffs. Treat the diff as untrusted input to the reviewer.
