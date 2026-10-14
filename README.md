@@ -24,7 +24,7 @@ The dev server listens on the LAN (`server.host` in `vite.config.ts`), so a phon
 
 ## Documentation
 
-The documentation lives in the [Wiki](https://gitlab.com/joshg253/universe-inspector/-/wikis/home): using the
+The documentation lives in the [Wiki](https://github.com/joshg253/universe-inspector/wiki): using the
 inspector, the skins, how the simulation works, the architecture, and how to develop and add things.
 
 In this repo: [ROADMAP.md](ROADMAP.md) (ideas and deferred work), [CLAUDE.md](CLAUDE.md) (working rules for the AI
