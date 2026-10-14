@@ -161,6 +161,8 @@ export function startApp(root: HTMLElement): void {
     tab: 'status' as Tab,
     /** Which stat's graph the Results tab shows (a field label); the first graph of a record when unset or absent. */
     chartStat: null as string | null,
+    /** Whether graphs also draw their running average. Transient UI state. */
+    chartAvg: false,
     /** How many ticks the Step button (and the . key) advance, per zoom level (universe, system, planet, settlement);
      *  an hour means nothing across a universe. Transient UI state. */
     stepTicks: [...BASE_TICKS] as number[],
@@ -192,7 +194,9 @@ export function startApp(root: HTMLElement): void {
   const map = new MapCanvas(pack, {
     onSelect: (p) => select(p),
     onOpen: (p) => open(p),
+    onLens: () => syncUrl(),
   });
+  if (query.get('lens') === 'age' || query.get('lens') === 'fill') map.lens = query.get('lens') as 'age' | 'fill';
   map.marks = state.marks;
   map.features = state.features;
 
@@ -849,7 +853,21 @@ export function startApp(root: HTMLElement): void {
     }
     resultsBody.append(h('table', { class: 'kv wide' }, body));
     if (active) {
-      resultsBody.append(h('div', { class: 'section-title' }, `${t(`field.${active.label}`)}${active.perYear ? ` (${t('field.per_year')})` : ''}`), lineChart(t(`field.${active.label}`), active.points, fmtTime));
+      const plotted = active.points.length >= 2; // a graph with no history yet has nothing to average
+      resultsBody.append(
+        h('div', { class: 'section-title' }, `${t(`field.${active.label}`)}${active.perYear ? ` (${t('field.per_year')})` : ''}`),
+      );
+      if (plotted) {
+        const toggle = h('input', { type: 'checkbox', checked: state.chartAvg });
+        toggle.addEventListener('change', () => ((state.chartAvg = toggle.checked), renderResults()));
+        resultsBody.append(h('label', { class: 'chart-opt' }, toggle, ` ${t('field.running_avg')}`));
+      }
+      resultsBody.append(
+        lineChart(t(`field.${active.label}`), active.points, fmtTime, {
+          avg: state.chartAvg ? { label: t('field.running_avg') } : undefined,
+          overlay: active.overlay ? { label: t(`field.${active.overlay.label}`), points: active.overlay.points } : undefined,
+        }),
+      );
     }
     const pyr = r.pyramid;
     if (pyr && pyr.f.length > 0) {
@@ -900,6 +918,29 @@ export function startApp(root: HTMLElement): void {
       resultsBody.append(list);
     };
     group('Contains', r.children);
+    // A person's family drawn by generation; the list below keeps the plain links.
+    if (r.tree && r.tree.rows.some((row) => row.items.length > 0 && row.label !== 'family') ) {
+      resultsBody.append(h('div', { class: 'section-title' }, t('field.tree')));
+      const tree = h('div', { class: 'famtree' });
+      for (const row of r.tree.rows) {
+        const cells = row.items.map((c) => {
+          const meta = c.meta ? ` ${t(`sexshort.${c.meta.sex}`)}/${c.meta.age}${c.meta.dead ? ' †' : ''}` : '';
+          return h(
+            'a',
+            {
+              class: 'fam' + (c.path === r.path ? ' me' : ''),
+              href: '#',
+              title: t(`field.${row.label}`),
+              onclick: (e: Event) => (e.preventDefault(), select(c.path)),
+            },
+            nm(c.nameKind, c.nameKey, c.tag),
+            h('small', null, meta.trim()),
+          );
+        });
+        tree.append(h('div', { class: 'famcap' }, t(`field.${row.label}`)), h('div', { class: 'famrow' }, ...cells));
+      }
+      resultsBody.append(tree);
+    }
     for (const l of r.links ?? []) group(t(`field.${l.label}`), l.items);
   }
 
@@ -1032,6 +1073,7 @@ export function startApp(root: HTMLElement): void {
       for (const k of ['ticks', 'menu', 'dialog', 'tab']) p.delete(k); // one-shot parameters: a reload must not repeat them
       set('skin', state.skin);
       set('pack', state.packId);
+      set('lens', map.lens === 'kind' ? '' : map.lens);
       history.replaceState(null, '', `${location.pathname}?${p}${location.hash}`);
     } catch {
       /* a sandboxed frame may refuse: the address is only a convenience */
@@ -1137,6 +1179,7 @@ export function startApp(root: HTMLElement): void {
         if (document.activeElement !== yearInput) yearInput.value = String(Math.floor(m.tick / YEAR));
         state.tps = m.tps;
         state.dyn = m.dyn;
+        map.setWeek(Math.floor(m.tick / TICKS_PER_WEEK));
         if (m.dyn && state.view && m.dyn.level === state.view.level) map.setDyn(m.dyn);
         if (m.events.length > 0) {
           state.events.push(...m.events);

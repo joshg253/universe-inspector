@@ -10,7 +10,7 @@ export interface ChartPoint {
 const NS = 'http://www.w3.org/2000/svg';
 const W = 320;
 const H = 130;
-const M = { l: 36, r: 12, t: 10, b: 22 };
+const M0 = { l: 36, r: 12, t: 10, b: 22 };
 
 function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number> = {}): SVGElementTagNameMap[K] {
   const el = document.createElementNS(NS, tag);
@@ -45,7 +45,25 @@ function timeMarks(t0: number, t1: number): { t: number; label: string }[] {
   return out;
 }
 
-export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: number) => string): HTMLElement {
+export interface ChartOptions {
+  /** Draw the trailing average of the line (over about a sixth of the span). */
+  avg?: { label: string };
+  /** A second series on its own right-hand scale. */
+  overlay?: { label: string; points: ChartPoint[] };
+}
+
+/** Trailing mean over the last `window` points (as many as exist at the start), a plain mean of the points. */
+function trailingMean(points: ChartPoint[], window: number): ChartPoint[] {
+  return points.map((p, i) => {
+    const from = Math.max(0, i - window + 1);
+    let sum = 0;
+    for (let k = from; k <= i; k++) sum += points[k]!.v;
+    return { t: p.t, v: sum / (i - from + 1) };
+  });
+}
+
+export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: number) => string, opts: ChartOptions = {}): HTMLElement {
+  const M = opts.overlay && opts.overlay.points.length > 1 ? { ...M0, r: 30 } : M0;
   const box = h('div', { class: 'chart' });
   if (points.length < 2) {
     box.append(h('div', { class: 'hint' }, 'History appears once the simulation has run for a few weeks.'));
@@ -85,6 +103,31 @@ export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: numb
     }
   }
 
+  // Overlay on its own scale, labeled on the right edge, and the trailing average of the main line on the same scale.
+  const legend: [string, string][] = [];
+  const ov = opts.overlay && opts.overlay.points.length > 1 ? opts.overlay.points : null;
+  if (ov) {
+    const [olo, ohi] = yRange(ov);
+    const OY = (v: number) => M.t + (1 - (v - olo) / Math.max(1, ohi - olo)) * (H - M.t - M.b);
+    let od = `M${X(ov[0]!.t)},${OY(ov[0]!.v)}`;
+    for (let i = 1; i < ov.length; i++) od += ` L${X(ov[i]!.t)},${OY(ov[i]!.v)}`;
+    root.append(svg('path', { d: od, class: 'chart-over' }));
+    for (const v of [olo, ohi]) {
+      const l = svg('text', { x: W - M.r + 4, y: OY(v) + 3, class: 'chart-text chart-over-text' });
+      l.textContent = String(Math.round(v));
+      root.append(l);
+    }
+    legend.push(['over', opts.overlay!.label]);
+  }
+  if (opts.avg) {
+    const win = Math.max(3, Math.ceil(points.length / 6));
+    const avg = trailingMean(points, win);
+    let ad = `M${X(avg[0]!.t)},${Y(avg[0]!.v)}`;
+    for (let i = 1; i < avg.length; i++) ad += ` L${X(avg[i]!.t)},${Y(avg[i]!.v)}`;
+    root.append(svg('path', { d: ad, class: 'chart-avg' }));
+    legend.push(['avg', opts.avg.label]);
+  }
+
   // Step line: a headcount holds its value until the next birth or death.
   let d = `M${X(points[0]!.t)},${Y(points[0]!.v)}`;
   for (let i = 1; i < points.length; i++) d += ` H${X(points[i]!.t)} V${Y(points[i]!.v)}`;
@@ -121,6 +164,9 @@ export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: numb
     cross.style.display = dot.style.display = tip.style.display = 'none';
   });
 
+  if (legend.length > 0) {
+    box.append(h('div', { class: 'chart-legend' }, ...legend.map(([k, label]) => h('span', { class: 'lg-' + k }, label))));
+  }
   box.append(root, tip);
   return box;
 }

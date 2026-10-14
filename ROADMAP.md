@@ -324,13 +324,17 @@ progression through ages, all deterministic from the seed. You watch and inspect
 
 (new ideas land here)
 
-- [ ] **More UI tools (left over):** a family-tree view for a person (parents, partner, children, grandchildren as a
-      diagram); condition on the hover card once buildings have it.
+- [ ] **More UI tools (left over):** condition on the hover card once buildings have it; graph hover and aria-label
+      should also read the running average and the overlay; lens bin colors and the overlay color should come from the pack
+      palette / skin variables (hard-coded now); a settlement record rebuilds four series in separate passes over everyone who
+      ever lived (share one pass if records get slow on long runs).
 
-- [ ] **Map views (overlay selector):** a dropdown by the zoom controls that recolors the district or planet map by one
-      measure: Normal, Resources (per cell, once they exist), Building age, Condition, Residents per building, Land use,
-      Water (salt or fresh). One registry of views (id, label, per-cell or per-building color function), so a new
-      measure is one entry. Building age and Residents work from data that exists now; the others wait on their features.
+- [ ] **More building types:** today a district has four kinds (home, shop, works, hall). Resource-driven land use needs more: farm, mine,
+      quarry, mill, dock, warehouse, workshop, school, shrine, and so on, each tied to the resource or need that wants it (a farm town gets farms,
+      a mine town mines plus housing for the workers). The kind registry (`DwellingKind`, pack palette, legend, lens colors) is the one place to
+      extend; do it with Resources step 1 so a kind exists because something asks for it.
+
+- [ ] **Map views (more lenses):** By kind, age and occupancy exist (one registry in `ui/map.ts`: `LENSES`, a bin table and a color function). Still to add as their features land: Resources (per cell), Condition, Land use, Water (salt or fresh); the planet map has no lens yet.
 
 - [ ] **Canon vs provisional (observation persistence):** inspecting something commits it. Today "inspect"
       only stores a boolean flag and the content is regenerated from the seed each time, so a generator

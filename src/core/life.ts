@@ -817,6 +817,22 @@ export function livingSeries(life: SiteLife, dwelling: number | null, offset = 0
   return sampleSeries(life.week, count, points);
 }
 
+/** The average age (whole years) of the people living in the district over time, on the same grid as `livingSeries`. */
+export function meanAgeSeries(life: SiteLife, points = 96): SeriesPoint[] {
+  const mean = (week: number): number => {
+    const t = week * TICKS_PER_WEEK;
+    let n = 0;
+    let sum = 0;
+    for (const p of life.people) {
+      if (p.since > t || (p.deathTick !== null && p.deathTick <= t)) continue;
+      n++;
+      sum += Math.max(0, Math.floor((t - p.birthTick) / TICKS_PER_YEAR));
+    }
+    return n === 0 ? NaN : sum / n; // nobody alive: no average (left out, not plotted as 0)
+  };
+  return sampleSeries(life.week, mean, points, (v) => Math.round(v * 10) / 10).filter((p) => Number.isFinite(p.v));
+}
+
 /** A district measure over time: standing dwellings, or births and deaths per year (the rate over each stretch). */
 export function districtSeries(life: SiteLife, kind: 'dwellings' | 'births' | 'deaths', points = 96): SeriesPoint[] {
   const count = (week: number): number => {
@@ -854,7 +870,7 @@ function rateSeries(W: number, total: (week: number) => number, points: number):
 }
 
 /** Samples `count(week)` on the fixed grid described below. Empty until a week has run. */
-function sampleSeries(W: number, count: (week: number) => number, points: number): SeriesPoint[] {
+function sampleSeries(W: number, count: (week: number) => number, points: number, round = Math.round): SeriesPoint[] {
   if (W < 1) return [];
   // Points sit on a fixed grid (a power-of-two number of weeks apart) and each one is the average headcount over the
   // bucket it closes, so a finished stretch of the line does not change as time advances (until the spacing doubles,
@@ -863,14 +879,18 @@ function sampleSeries(W: number, count: (week: number) => number, points: number
   const n = Math.max(2, Math.floor(points));
   let step = 1;
   while (step * (n - 1) < W) step *= 2;
-  const out: SeriesPoint[] = [{ t: 0, v: count(0) }];
+  const out: SeriesPoint[] = [{ t: 0, v: round(count(0)) }];
   for (let k = 1; k * step < W; k++) {
     const samples = Math.min(4, step);
     let sum = 0;
-    for (let q = 0; q < samples; q++) sum += count((k - 1) * step + 1 + Math.floor((q * step) / samples));
-    out.push({ t: k * step * TICKS_PER_WEEK, v: Math.round(sum / samples) });
+    let seen = 0;
+    for (let q = 0; q < samples; q++) {
+      const c = count((k - 1) * step + 1 + Math.floor((q * step) / samples));
+      if (Number.isFinite(c)) (sum += c, seen++); // a sample with no value (NaN) is left out of the bucket's average
+    }
+    out.push({ t: k * step * TICKS_PER_WEEK, v: seen > 0 ? round(sum / seen) : NaN });
   }
-  out.push({ t: W * TICKS_PER_WEEK, v: count(W) });
+  out.push({ t: W * TICKS_PER_WEEK, v: round(count(W)) });
   return out;
 }
 

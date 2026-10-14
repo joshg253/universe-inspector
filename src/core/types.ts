@@ -215,6 +215,8 @@ export interface RecordChart {
   /** The values are a rate per year, not a level. */
   perYear?: boolean;
   points: { t: number; v: number }[];
+  /** A second measure drawn over the first on its own scale (a label key, like `label`). */
+  overlay?: { label: string; points: { t: number; v: number }[] };
 }
 
 export interface RecordData {
@@ -227,6 +229,9 @@ export interface RecordData {
   fields: RecordField[];
   children: RecordChild[];
   links?: RecordLinks[];
+  /** A person's family by generation, oldest first: grandparents, parents, the person with siblings and the other parents of
+   *  their children, children, grandchildren. */
+  tree?: { rows: { label: string; items: RecordChild[] }[] };
   charts?: RecordChart[];
   /** Living people by age band (`step` years each, youngest first) and sex, for a settlement. */
   pyramid?: { step: number; f: number[]; m: number[] };

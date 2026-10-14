@@ -4,7 +4,7 @@ import { YEAR } from './time';
 import { rngFor, makeNoise } from './rng';
 import { parsePath } from './path';
 import { layoutTown } from './town';
-import { SiteLife, ageAt, capacityOf, districtSeries, livingSeries, visibleCells, type Person, type SiteLifeSeed } from './life';
+import { SiteLife, ageAt, capacityOf, districtSeries, livingSeries, meanAgeSeries, visibleCells, type Person, type SiteLifeSeed } from './life';
 import type { DeltaStore } from './deltas';
 import type {
   AnomalySummary,
@@ -618,7 +618,7 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
         pyramid: life ? agePyramid(life, live!.tick) : undefined,
         charts: life
           ? [
-              { label: 'population', points: pop },
+              { label: 'population', points: pop, overlay: { label: 'mean_age', points: meanAgeSeries(life) } },
               { label: 'dwellings', points: dw },
               { label: 'residents', points: pop },
               { label: 'births', points: births, perYear: true },
@@ -688,12 +688,44 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
         group('father', people(me.father === null ? [] : [L.people[me.father]!]));
         group('offspring', people(L.people.filter((p) => p.mother === me.id || p.father === me.id)));
       }
+      // The family by generation. Everyone who ever lived in the district is on record (the dead stay), id order throughout.
+      let tree: RecordData['tree'];
+      if (me) {
+        const byId = (ids: (number | null)[]): Person[] => {
+          const seen = new Set<number>();
+          const out: Person[] = [];
+          for (const id of ids) if (id !== null && !seen.has(id)) (seen.add(id), out.push(L.people[id]!));
+          return out.sort((a, b) => a.id - b.id);
+        };
+        const parentsOf = (p: Person) => byId([p.mother, p.father]);
+        const kidsOf = (ps: Person[]) => L.people.filter((q) => ps.some((p) => q.mother === p.id || q.father === p.id));
+        const parents = parentsOf(me);
+        const grand = byId(parents.flatMap((p) => [p.mother, p.father]));
+        const sibs = L.people.filter(
+          (q) => q.id !== me.id && ((me.mother !== null && q.mother === me.mother) || (me.father !== null && q.father === me.father)),
+        );
+        const kids = kidsOf([me]);
+        const mates = byId(kids.flatMap((k) => [k.mother, k.father])).filter((p) => p.id !== me.id);
+        const grandkids = kidsOf(kids);
+        const middle = [...sibs, me, ...mates].sort((a, b) => a.id - b.id);
+        const rows = [
+          { label: 'grandparents', items: grand },
+          { label: 'parents', items: parents },
+          { label: 'family', items: middle },
+          { label: 'offspring', items: kids },
+          { label: 'grandchildren', items: grandkids },
+        ]
+          .filter((row) => row.items.length > 0)
+          .map((row) => ({ label: row.label, items: people(row.items) }));
+        tree = { rows };
+      }
       return {
         path,
         kind: 'person',
         nameKey: personKey(seed, d.nameKey, path),
         nameKind: 'person',
         links,
+        tree,
         inspected,
         fields: [
           num('age', age),

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
 import { orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
-import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, residenceAt, applyLife } from '../src/core/life';
+import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, meanAgeSeries, residenceAt, applyLife } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
 import { rngFor } from '../src/core/rng';
@@ -296,6 +296,58 @@ assert.equal(viewLevel('s1/b2'), 'body');
     assert.ok(rate.length > 0 && rate[0]!.t >= 4 * TICKS_PER_WEEK, 'a rate is never scaled up from a stretch under four weeks');
     const rec = genRecord(seed, site.path, new DeltaStore(), { tick: far.tick, life: young });
     assert.equal((rec.pyramid!.f.concat(rec.pyramid!.m)).reduce((n, v) => n + v, 0), young.living, 'the pyramid adds up to the living');
+    // Average age: the last point is the mean age of the living, exactly; the first is the starting residents'.
+    {
+      const ages = meanAgeSeries(young);
+      const living = young.people.filter((p) => p.deathTick === null);
+      const mean = living.reduce((n, p) => n + Math.floor((far.tick - p.birthTick) / TICKS_PER_YEAR), 0) / living.length;
+      assert.equal(ages[ages.length - 1]!.v, Math.round(mean * 10) / 10, 'the average age ends at the living');
+      const first = young.people.slice(0, young.initial); // the starting residents come first, in id order
+      const meanFirst = first.reduce((n, p) => n + Math.floor((0 - p.birthTick) / TICKS_PER_YEAR), 0) / first.length;
+      assert.equal(ages[0]!.v, Math.round(meanFirst * 10) / 10, 'the average age starts at the starting residents');
+      assert.ok(ages.every((p) => Number.isFinite(p.v)), 'no gaps or NaN in the average-age line');
+      assert.ok(ages.some((p, i) => i > 0 && i < ages.length - 1 && !Number.isInteger(p.v)), 'interior points keep their decimal');
+      assert.ok(rec.charts!.find((c) => c.label === 'population')!.overlay!.points.length > 0, 'the population graph carries the overlay');
+    }
+    // The family tree: parents above, children below, everyone on it exists, the person is in their own row, grandchildren
+    // are the children's children. Looked at over a long run so there are three generations.
+    {
+      const old = new Sim(seed);
+      old.setFocusFromPath(site.path);
+      old.advance(120 * TICKS_PER_YEAR);
+      const L = old.lifeFor(site.path)!;
+      let checked = 0;
+      let deep = 0;
+      for (const p of L.people) {
+        if (p.mother === null && p.father === null && !L.people.some((q) => q.mother === p.id || q.father === p.id)) continue;
+        const path = `${data.dwellings[p.origin]!.path}/p${p.local}`;
+        const r = genRecord(seed, path, new DeltaStore(), { tick: old.tick, life: L });
+        if (!r.tree) continue;
+        const rows = Object.fromEntries(r.tree.rows.map((row) => [row.label, row.items]));
+        assert.ok(rows.family!.some((c) => c.path === path), 'the person is in their own row');
+        for (const row of r.tree.rows) assert.equal(new Set(row.items.map((c) => c.path)).size, row.items.length, 'no one twice in a row');
+        const kids = (rows.offspring ?? []).length;
+        assert.equal(kids, L.people.filter((q) => q.mother === p.id || q.father === p.id).length, 'children match the record');
+        assert.ok((rows.parents ?? []).length <= 2);
+        // Every grandparent is a parent of a parent, and every grandchild has one of the person's children as a parent.
+        const idOf = (c: { path: string }) => L.people.find((q) => `${data.dwellings[q.origin]!.path}/p${q.local}` === c.path)!;
+        const mine = new Set(rows.parents?.map((c) => idOf(c).id));
+        for (const g of rows.grandparents ?? []) {
+          const gp = idOf(g);
+          assert.ok(L.people.some((q) => mine.has(q.id) && (q.mother === gp.id || q.father === gp.id)), 'a grandparent is a parent of a parent');
+        }
+        const kidIds = new Set(rows.offspring?.map((c) => idOf(c).id));
+        for (const g of rows.grandchildren ?? []) {
+          const gc = idOf(g);
+          assert.ok(kidIds.has(gc.mother ?? -1) || kidIds.has(gc.father ?? -1), 'a grandchild has one of my children as a parent');
+        }
+        if (rows.grandchildren) deep++;
+        checked++;
+        if (checked >= 40) break;
+      }
+      assert.ok(checked > 0, 'some person has family to draw');
+      assert.ok(deep > 0, 'three generations show up');
+    }
     far.goto(4 * TICKS_PER_YEAR);
     near.advance(4 * TICKS_PER_YEAR - near.tick);
     assert.equal(json(far.lifeFor(site.path)!.people), json(near.lifeFor(site.path)!.people), 'and forward again');
