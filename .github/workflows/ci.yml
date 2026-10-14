@@ -1,0 +1,48 @@
+# Checks on pushes to main and on every pull request (a branch with an open PR is checked once, as the PR): the core
+# invariants, then the typecheck + static build.
+# Node comes from .nvmrc, the single source of truth for the version.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One run per branch or PR; a newer push cancels the older run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  install-and-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: node --version
+      - run: npm ci --prefer-offline
+      - run: npm test
+      - run: npm run build
+      - run: test -s dist/index.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  # Advisory: known-vulnerable dependencies. Does not fail the run.
+  audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm audit --audit-level=high
