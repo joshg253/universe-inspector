@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
 import { orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
-import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, meanAgeSeries, residenceAt, applyLife } from '../src/core/life';
+import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, meanAgeSeries, residenceAt, applyLife, AGE_TOP, UNLOCK_AGE, AGE_NEEDS } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
 import { buildResources, foodSupply, riverChance } from '../src/core/resources';
@@ -908,6 +908,60 @@ assert.equal(viewLevel('s1/b2'), 'body');
   }
   assert.ok(seen.mill > 0 && seen.quarry > 0 && seen.dock > 0, `all resource workplaces occur: ${JSON.stringify(seen)}`);
   assert.ok(pairs >= 3 && fed > starved, `rich land grows more than poor: ${fed} vs ${starved}`);
+}
+
+// 10. Ages: a rung only rises, one at a time, with its needs standing when it is reached; a workplace waits for its age; looking late
+// equals watching all along.
+{
+  let climbs = 0;
+  let late = 0;
+  let stalled = 0;
+  for (const s of ['alpha', 'beta', 'gamma']) {
+    for (const b of settledBodyIndexes(s, 0)) {
+      for (const st of bodySites(s, 0, b)) {
+        const sd = siteLifeSeed(s, 0, b, st.index);
+        const jump = new SiteLife(s, sd);
+        const step = new SiteLife(s, sd);
+        const start = step.ageAt(0);
+        assert.ok(start >= 0 && start <= AGE_TOP, 'start rung within the ladder');
+        let prev = start;
+        for (let w = 1; w <= 52 * 200; w++) {
+          const living = step.living; // what the town had when the week began
+          const standing = (f: (k: string) => boolean) => sd.dwellings.filter((d, i) => f(d.kind) && step.isBuilt(i, w)).length;
+          const [shops, works, workplaces] = [
+            standing((k) => k === 'shop'),
+            standing((k) => k === 'works'),
+            standing((k) => ['mill', 'quarry', 'dock', 'works'].includes(k)),
+          ];
+          step.advanceTo(w);
+          const now = step.ageAt(w);
+          assert.ok(now === prev || now === prev + 1, 'one rung at a time, never down');
+          if (now > prev) {
+            climbs++;
+            const need = AGE_NEEDS[prev]!;
+            assert.ok(living >= need.pop, `reached rung ${now} with ${living} people, needs ${need.pop}`);
+            assert.ok(shops >= need.shop && works >= need.works && workplaces >= need.work, 'the shops and workplaces stood');
+          }
+          prev = now;
+        }
+        if (prev < AGE_TOP) stalled++;
+        // Looking late: one jump gives the same rungs and the same buildings as watching week by week.
+        jump.advanceTo(52 * 200);
+        assert.equal(jump.ageAt(52 * 200), step.ageAt(52 * 200), 'late look matches the rung');
+        for (let w = 0; w <= 52 * 200; w += 520) assert.equal(jump.ageAt(w), step.ageAt(w), 'late look matches history');
+        sd.dwellings.forEach((d, i) => {
+          assert.equal(jump.builtWeekOf(i), step.builtWeekOf(i), 'late look matches the build weeks');
+          const need = UNLOCK_AGE[d.kind] ?? 0;
+          const w = step.builtWeekOf(i);
+          if (need > 0 && w > 0) {
+            late++;
+            assert.ok(step.ageAt(w) >= need, `${d.kind} finished in age ${step.ageAt(w)}, needs ${need}`);
+          }
+        });
+      }
+    }
+  }
+  assert.ok(climbs > 0 && late > 0 && stalled > 0, `towns climb, workplaces wait then get built, some stall: ${climbs}/${late}/${stalled}`);
 }
 
 console.log(`ok: walked ${walked} settlements across 18 systems; names: ${names.join(' / ')}`);
