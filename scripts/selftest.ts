@@ -5,7 +5,7 @@ import { orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSys
 import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, meanAgeSeries, residenceAt, applyLife } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
-import { buildResources, riverChance } from '../src/core/resources';
+import { buildResources, foodSupply, riverChance } from '../src/core/resources';
 import { rngFor } from '../src/core/rng';
 import { Sim, dynFor } from '../src/core/sim';
 import { packOf, PACKS } from '../src/packs';
@@ -95,7 +95,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
 {
   const run = () =>
     ['small', 'medium', 'large'].map((size, i) =>
-      json(layoutTown(64, size as 'small' | 'medium' | 'large', [40, 700, 5000][i]!, 0.45, rngFor('alpha', `town/${size}`, 'layout'))),
+      json(layoutTown(64, size as 'small' | 'medium' | 'large', [40, 700, 5000][i]!, 0.45, { fresh: 2, salt: 0, soil: 2, timber: 2, stone: 2, fish: 1 }, rngFor('alpha', `town/${size}`, 'layout'))),
     );
   const native = run();
   const nativeSort = Array.prototype.sort;
@@ -177,7 +177,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.ok(withKids > 0, 'some starting residents are children of others in the home');
   assert.equal(start.totals.births, 0, 'the starting children are not births here');
   data.dwellings.forEach((dw, di) => {
-    if (dw.kind === 'works' || dw.kind === 'hall') assert.equal(dw.residents, 0, 'works and the hall start empty');
+    if (dw.kind !== 'home' && dw.kind !== 'shop') assert.equal(dw.residents, 0, 'workplaces and the hall start empty');
     // Starting siblings (same parents, not twins) are at least about a year apart.
     const born = start.residents(di).filter((q) => q.mother !== null || q.father !== null);
     const byParents = new Map<string, number[]>();
@@ -501,7 +501,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
           l.advanceTo(52 * 150);
           const rec = genRecord(seed, s.path, new DeltaStore(), { tick: l.week * TICKS_PER_WEEK, life: l });
           const f = (k: string) => rec.fields.find((x) => x.label === k)!.value;
-          assert.equal(f('population'), f('residents'), 'population equals the residents shown, after any time');
+          assert.equal(f('population'), l.living, 'the record shows the living population, after any time');
+          assert.equal(rec.fields.some((x) => x.label === 'residents'), false, 'a settlement states its people once');
           const applied = applyLife(view, l);
           assert.equal(applied.population, l.living);
           assert.equal(applied.dwellings.reduce((n, x) => n + x.residents, 0), applied.population, 'the residents shown add up to the population');
@@ -580,7 +581,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
             if (dw.kind !== 'home') assert.equal(ext.length, 0, 'only homes grow');
             else homes++;
             assert.ok(dw.w * dw.h + ext.length <= Math.max(16, dw.w * dw.h), 'growth is capped');
-            assert.equal(l.capacity(i), dw.kind === 'works' || dw.kind === 'hall' ? 0 : Math.min(10, 2 + Math.floor((dw.w * dw.h + ext.length) / 2)));
+            assert.equal(l.capacity(i), dw.kind !== 'home' && dw.kind !== 'shop' ? 0 : Math.min(10, 2 + Math.floor((dw.w * dw.h + ext.length) / 2)));
             if (ext.length > 0) grew++;
             // Each added cell is free ground or garden and touches the building as it stood when the cell was added.
             const cells = new Set(own);
@@ -861,6 +862,52 @@ assert.equal(viewLevel('s1/b2'), 'body');
     assert.ok(byFresh.wet[1] / byFresh.wet[0] > byFresh.dry[1] / byFresh.dry[0], `fresh water makes rivers likelier: ${byFresh.wet} vs ${byFresh.dry}`);
   }
   assert.ok(riverTowns > 0, 'some districts have a river');
+}
+
+// 9. Resource workplaces and food: a mill, quarry or dock only stands where its resource is around, and poor land grows less.
+{
+  assert.ok(foodSupply({ fresh: 0, salt: 0, soil: 0, timber: 0, stone: 0, fish: 0 }) === 0, 'no food without soil, fish or water');
+  assert.ok(foodSupply({ fresh: 3, salt: 0, soil: 3, timber: 0, stone: 0, fish: 3 }) === 1, 'plentiful land feeds fully');
+  assert.ok(
+    foodSupply({ fresh: 2, salt: 0, soil: 2, timber: 0, stone: 0, fish: 1 }) > foodSupply({ fresh: 2, salt: 0, soil: 0, timber: 0, stone: 0, fish: 1 }),
+    'soil adds food',
+  );
+  const need = { mill: 'timber', quarry: 'stone', dock: 'fish' } as const;
+  const seen = { mill: 0, quarry: 0, dock: 0 };
+  let fed = 0;
+  let starved = 0;
+  let pairs = 0;
+  for (const s of ['alpha', 'beta', 'gamma', 'delta', 'epsilon']) {
+    for (const b of settledBodyIndexes(s, 0)) {
+      for (const st of bodySites(s, 0, b)) {
+        const sd = siteLifeSeed(s, 0, b, st.index);
+        const a = st.around;
+        for (const dw of sd.dwellings) {
+          if (dw.kind in need) {
+            const k = need[dw.kind as keyof typeof need];
+            assert.ok(a[k] > 0, `a ${dw.kind} only where there is ${k}`);
+            seen[dw.kind as keyof typeof need]++;
+          }
+        }
+        if (pairs < 6 && sd.dwellings.length > 12) {
+          pairs++;
+          const rich = new SiteLife(s, { ...sd, food: 1 });
+          const poor = new SiteLife(s, { ...sd, food: 0 });
+          rich.advanceTo(52 * 150);
+          poor.advanceTo(52 * 150);
+          fed += rich.living;
+          starved += poor.living;
+        }
+      }
+    }
+  }
+  // The local calendar: days per year is the orbit over the day, finite and positive on every body.
+  for (const b of settledBodyIndexes('alpha', 0)) {
+    const yd = genRecord('alpha', `s0/b${b}`, new DeltaStore()).fields.find((f) => f.label === 'yearDays')!.value as number;
+    assert.ok(Number.isFinite(yd) && yd > 0, `days per year is positive: ${yd}`);
+  }
+  assert.ok(seen.mill > 0 && seen.quarry > 0 && seen.dock > 0, `all resource workplaces occur: ${JSON.stringify(seen)}`);
+  assert.ok(pairs >= 3 && fed > starved, `rich land grows more than poor: ${fed} vs ${starved}`);
 }
 
 console.log(`ok: walked ${walked} settlements across 18 systems; names: ${names.join(' / ')}`);

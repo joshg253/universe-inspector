@@ -196,6 +196,8 @@ export interface SiteLifeSeed {
   }[];
   /** The district grid (side n, one terrain code per cell), so a home can find free ground to grow into. */
   grid: { n: number; cells: Uint8Array };
+  /** How well the surroundings feed the town, 0..1 (absent: plenty). Poor land slows births, arrivals and new building. */
+  food?: number;
 }
 
 export interface Cell {
@@ -211,6 +213,8 @@ export class SiteLife {
   /** People alive at tick 0. */
   readonly initial: number;
   private readonly base: number;
+  /** 0.55..1: how freely the district grows given its food (see `SiteLifeSeed.food`). */
+  private readonly feed: number;
   private readonly kinds: string[];
   /** The people alive now, in id order. The fold walks this instead of everyone who ever lived, so a long run costs
    *  time in proportion to the living, not to the dead that pile up. */
@@ -247,6 +251,7 @@ export class SiteLife {
     this.extra = data.dwellings.map(() => []);
     this.area = data.dwellings.map((d) => d.w * d.h);
     this.grid = data.grid;
+    this.feed = 0.55 + 0.45 * (data.food ?? 1);
     this.occ = new Uint8Array(data.grid.n * data.grid.n);
     this.origin = data.dwellings.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h }));
     this.plot = data.dwellings.map((d) => d.plot);
@@ -417,7 +422,7 @@ export class SiteLife {
     return w >= 0 && w <= week && this.ruinedWeek[dwelling]! < 0; // -1: held in reserve until the town needs it
   }
 
-  /** People a dwelling holds at most right now; none for works and the hall. */
+  /** People a dwelling holds at most right now; none for workplaces and the hall. */
   capacity(dwelling: number): number {
     const k = this.kinds[dwelling];
     if (k !== 'home' && k !== 'shop') return 0;
@@ -557,7 +562,7 @@ export class SiteLife {
     // Crowding: a district that has outgrown its starting population births and receives fewer; one that has shrunk,
     // more. Keeps long runs from running away to the building cap or dying out.
     const fortune = fortuneOf(base, week);
-    const crowd = Math.max(0.2, Math.min(1.3, 1 + (this.initial - this.living) / Math.max(1, this.initial))) * fortune;
+    const crowd = Math.max(0.2, Math.min(1.3, 1 + (this.initial - this.living) / Math.max(1, this.initial))) * fortune * this.feed;
 
     // Deaths.
     const home: Person[][] = this.kinds.map(() => []);
@@ -697,7 +702,7 @@ export class SiteLife {
       if (this.started[d] && this.builtWeek[d]! > week) underway++;
       else if (this.kinds[d] === 'home' && this.boxedIn[d] && g.length >= this.capacity(d)) pressed++;
     });
-    if (pressed > underway && roll(base, week, 0, 24) < pressed * BUILD_PER_PRESSED_WEEK) {
+    if (pressed > underway && roll(base, week, 0, 24) < pressed * BUILD_PER_PRESSED_WEEK * this.feed) {
       let pick = -1;
       for (let d = 0; d < this.builtWeek.length && pick < 0; d++) if (this.builtWeek[d] === -1 && this.kinds[d] === 'home') pick = d;
       for (let d = 0; d < this.builtWeek.length && pick < 0; d++) if (this.builtWeek[d] === -1) pick = d;

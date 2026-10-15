@@ -154,12 +154,14 @@ progression through ages, all deterministic from the seed. You watch and inspect
       water, fish, stone, with salt as a coast tag; the deposit kinds wait for Ages.
       Done so far (`core/resources.ts`): per-cell water (fresh/salt by connected size), soil, timber, stone on the planet; towns
       need water within 5 cells and prefer farmland; the district river chance comes from the fresh water nearby; the site
-      record lists water, soil, timber, stone, fish. Still open: per-settlement draw-down, ages gating, buildings that use them.
+      record lists water, soil, timber, stone, fish. Towns get a mill, quarry or dock only where timber, stone or fish are around, farmsteads
+      follow the soil, and a `food` figure (soil, fish, water) scales births, arrivals and new building. Still open: per-settlement
+      draw-down, ages gating, farm/mine/warehouse and other kinds, food as real stock.
       A town dies when what it lives on is depleted or obsolete (flint, whale oil, a fuel an age moves past); the ruins stay
       on the map, and when a later age makes something there valuable (ore, silicon, oil) it is resettled: boom, bust,
       ghost town, boom. So a ruin keeps its plots as reserve, and a district's history has more than one founding.
       No town is tagged lucky or unlucky: how it ends comes out of the draw (its land, its stocks, the events it meets).
-      The per-district `fortuneOf` flag in `life.ts` is a stand-in to remove once resources drive decline.
+      The per-district `fortuneOf` flag in `life.ts` is a stand-in to remove once resources drive decline (food now shapes growth, not decline).
 - [ ] **Founding dates and growth:** every settlement gets a `founded` tick (negative = already existed, so old towns
       are more built-out at tick 0; positive = appears later) and every building a `builtTick` from the town's plan
       order and a growth curve. People only live in buildings that exist, so households found new homes and
@@ -353,8 +355,8 @@ progression through ages, all deterministic from the seed. You watch and inspect
       palette / skin variables (hard-coded now); a settlement record rebuilds four series in separate passes over everyone who
       ever lived (share one pass if records get slow on long runs).
 
-- [ ] **More building types:** today a district has four kinds (home, shop, works, hall). Resource-driven land use needs more: farm, mine,
-      quarry, mill, dock, warehouse, workshop, school, shrine, and so on, each tied to the resource or need that wants it (a farm town gets farms,
+- [ ] **More building types:** today a district has seven kinds (home, shop, works, mill, quarry, dock, hall). Still wanted: farm, mine,
+      warehouse, workshop, school, shrine, and so on, each tied to the resource or need that wants it (a farm town gets farms,
       a mine town mines plus housing for the workers). The kind registry (`DwellingKind`, pack palette, legend, lens colors) is the one place to
       extend; do it with Resources step 1 so a kind exists because something asks for it.
 

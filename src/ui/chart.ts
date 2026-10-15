@@ -41,7 +41,7 @@ function timeMarks(t0: number, t1: number): { t: number; label: string }[] {
   while ((t1 - t0) / step > 5) step *= 2; // past the last tabled spacing: keep widening so there are never more than five
   const out: { t: number; label: string }[] = [];
   for (let t = Math.ceil((t0 + 1) / step) * step; t < t1; t += step) {
-    out.push({ t, label: step >= YEAR ? `Y${Math.round(t / YEAR)}` : `D${Math.floor(t / DAY) + 1}` });
+    out.push({ t, label: step >= YEAR ? `Y${Math.round(t / YEAR).toLocaleString('en-US')}` : `D${(Math.floor(t / DAY) + 1).toLocaleString('en-US')}` });
   }
   return out;
 }
@@ -63,6 +63,9 @@ function trailingMean(points: ChartPoint[], window: number): ChartPoint[] {
   });
 }
 
+/** Numbers read with thousands separators, the same everywhere. */
+const num = (v: number): string => v.toLocaleString('en-US');
+
 export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: number) => string, opts: ChartOptions = {}): HTMLElement {
   const M = opts.overlay && opts.overlay.points.filter((p) => Number.isFinite(p.v)).length > 1 ? { ...M0, r: 30 } : M0;
   const box = h('div', { class: 'chart' });
@@ -78,12 +81,12 @@ export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: numb
 
   const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart-svg', role: 'img' });
   const last = points[points.length - 1]!;
-  root.setAttribute('aria-label', `${title}: ${last.v} at ${fmtTime(last.t)}, range ${lo} to ${hi}`);
+  root.setAttribute('aria-label', `${title}: ${num(last.v)} at ${fmtTime(last.t)}, range ${num(lo)} to ${num(hi)}`);
 
   for (const v of [lo, (lo + hi) / 2, hi]) {
     root.append(svg('line', { x1: M.l, x2: W - M.r, y1: Y(v), y2: Y(v), class: 'chart-grid' }));
     const label = svg('text', { x: M.l - 5, y: Y(v) + 3, class: 'chart-text', 'text-anchor': 'end' });
-    label.textContent = String(Math.round(v));
+    label.textContent = num(Math.round(v));
     root.append(label);
   }
   const xl = svg('text', { x: M.l, y: H - 6, class: 'chart-text' });
@@ -124,7 +127,7 @@ export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: numb
     root.append(svg('path', { d: od, class: 'chart-over' }));
     for (const v of [olo, ohi]) {
       const l = svg('text', { x: W - M.r + 4, y: OY(v) + 3, class: 'chart-text chart-over-text' });
-      l.textContent = String(Math.round(v));
+      l.textContent = num(Math.round(v));
       root.append(l);
     }
     legend.push(['over', opts.overlay!.label]);
@@ -144,7 +147,7 @@ export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: numb
   root.append(svg('path', { d, class: 'chart-line' }));
 
   const endLabel = svg('text', { x: X(last.t) - 4, y: Y(last.v) - 6, class: 'chart-value', 'text-anchor': 'end' });
-  endLabel.textContent = String(last.v);
+  endLabel.textContent = num(last.v);
   root.append(endLabel);
 
   const cross = svg('line', { y1: M.t, y2: H - M.b, class: 'chart-cross' });
@@ -165,7 +168,7 @@ export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: numb
     dot.setAttribute('cx', String(X(best.t)));
     dot.setAttribute('cy', String(Y(best.v)));
     cross.style.display = dot.style.display = '';
-    tip.textContent = `${fmtTime(best.t)}: ${best.v}`;
+    tip.textContent = `${fmtTime(best.t)}: ${num(best.v)}`;
     tip.style.display = '';
     const left = (X(best.t) / W) * r.width;
     tip.style.left = `${Math.min(Math.max(left, 40), r.width - 40)}px`;

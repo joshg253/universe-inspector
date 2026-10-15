@@ -131,6 +131,11 @@ export function surroundings(res: Resources, W: number, H: number, x: number, y:
   };
 }
 
+/** How well the surroundings can feed a town, 0..1: farmland first, then fish and fresh water. */
+export function foodSupply(s: Surroundings): number {
+  return Math.min(1, (0.5 * s.soil + 0.3 * s.fish + 0.2 * Math.max(s.fresh, s.salt * 0.6)) / 3);
+}
+
 /** How good a place with water is to settle, 0..1: more water, then food ground. Used as an acceptance chance for a site. */
 export function appeal(s: Surroundings): number {
   const water = Math.max(s.fresh, s.salt * 0.8);

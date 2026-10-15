@@ -1,6 +1,7 @@
 // Town layout: street network, plaza and hall, an optional river, then buildings packed along the streets.
 // Pure function of the rng it is given (so of seed + path). No theme words: it emits ids and cell codes.
 import { makeNoise, type Rng } from './rng';
+import type { Surroundings } from './resources';
 import type { DwellingKind, SizeClass, TownStyle } from './types';
 
 /** Cell codes of the district grid. Buildings are not in the grid; they are listed separately. */
@@ -59,7 +60,7 @@ const FOOTPRINTS: [number, number, number][] = [
 const DENSITY: Record<SizeClass, number> = { small: 0.5, medium: 0.65, large: 0.8 };
 const HALL: Record<SizeClass, [number, number]> = { small: [3, 3], medium: [4, 3], large: [4, 4] };
 
-export function layoutTown(N: number, size: SizeClass, population: number, riverChance: number, r: Rng): TownLayout {
+export function layoutTown(N: number, size: SizeClass, population: number, riverChance: number, around: Surroundings, r: Rng): TownLayout {
   const cells = new Uint8Array(N * N);
   const occ = new Uint8Array(N * N); // 1 where a building stands
   const noise = makeNoise(r.u32());
@@ -277,7 +278,8 @@ export function layoutTown(N: number, size: SizeClass, population: number, river
   }
   owned.fill(0); // claim() sets it again, plot by plot, in the order the buildings are decided
   rects.sort((p, q) => p.k - q.k);
-  let farmsLeft = 3 + Math.round(R * 0.9);
+  // Farmsteads follow the soil: none without any, up to a third more on plentiful land.
+  let farmsLeft = around.soil === 0 ? 0 : Math.round((3 + R * 0.9) * (0.4 + 0.3 * around.soil));
   const MAX_BUILDINGS = 170; // reserve plots stop here (the list is fixed at layout)
   /** Put a building in a plot, in the plot's corner nearest the center. */
   const placeIn = (px: number, py: number, pw: number, ph: number, farm: boolean, later: number) => {
@@ -365,13 +367,16 @@ export function layoutTown(N: number, size: SizeClass, population: number, river
       home: 70 - (area >= 9 ? 25 : 0),
       shop: 3 + 14 * (1 - d) + (area >= 6 ? 4 : 0),
       works: 5 + 16 * d + (area >= 9 ? 6 : 0),
+      mill: around.timber * (2 + 5 * d),
+      quarry: around.stone * (2 + 5 * d),
+      dock: around.fish * (2 + 4 * d),
     }) as DwellingKind;
     b.residents =
       b.kind === 'home'
         ? Math.max(1, Math.min(8, 1 + Math.floor(area * r.range(0.15, 0.55))))
         : b.kind === 'shop'
           ? r.int(0, 2) // the keeper's household lives above the shop
-          : (r.int(0, 3), 0); // works and the hall are workplaces; nobody lives there (draw kept, see above)
+          : (r.int(0, 3), 0); // works, mills, quarries, docks and the hall are workplaces; nobody lives there (draw kept, see above)
     if (b.built !== 0) b.residents = 0; // nobody lives in what is not built yet
   }
 

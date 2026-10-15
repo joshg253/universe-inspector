@@ -18,7 +18,7 @@ export const SCIFI_PALETTE: Palette = {
   green: '#2f6a3a',
   plaza: '#8a8a90',
   water: '#1f4f86',
-  dwelling: { home: '#8fa3b8', shop: '#d9a441', works: '#b5656a', hall: '#e8e8f0' },
+  dwelling: { home: '#8fa3b8', shop: '#d9a441', works: '#b5656a', mill: '#6fa070', quarry: '#9a9aa8', dock: '#4f8fb0', hall: '#e8e8f0' },
   mark: { site: '#b48cf0', anomaly: '#e04848', selected: '#ffe45c', settled: '#b48cf0' },
 };
 
@@ -64,6 +64,9 @@ export const scifi = definePack({
     'dwelling.home': 'Habitat',
     'dwelling.shop': 'Market',
     'dwelling.works': 'Fabricator',
+    'dwelling.mill': 'Fiber plant',
+    'dwelling.quarry': 'Mining rig',
+    'dwelling.dock': 'Harbor',
     'dwelling.hall': 'Command hall',
     'role.laborer': 'Technician',
     'role.artisan': 'Fabricator',
