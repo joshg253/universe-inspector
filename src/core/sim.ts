@@ -45,15 +45,31 @@ export class Sim {
   lifeFor(path: string): SiteLife | null {
     const sitePath = sitePathOf(path);
     if (!sitePath) return null;
+    const life = this.lifeAt(sitePath);
+    life.advanceTo(Math.floor(this.tick / TICKS_PER_WEEK));
+    return life;
+  }
+
+  private lifeAt(sitePath: string): SiteLife {
     let life = this.lives.get(sitePath);
     if (!life) {
       const [s, b, t] = parsePath(sitePath);
       life = new SiteLife(this.seed, siteLifeSeed(this.seed, s!.i, b!.i, t!.i));
-      if (this.lives.size >= 8) this.lives.delete(this.lives.keys().next().value as string);
+      if (this.lives.size >= 24) this.lives.delete(this.lives.keys().next().value as string);
       this.lives.set(sitePath, life);
     }
-    life.advanceTo(Math.floor(this.tick / TICKS_PER_WEEK));
     return life;
+  }
+
+  /**
+   * A district's headcount for a list of settlements. It folds the district forward by at most `budget` weeks per call, so
+   * opening a planet late in a long run never stalls; `current` is false while the district is still catching up.
+   */
+  peekLiving(sitePath: string, budget: number): { living: number; current: boolean } {
+    const life = this.lifeAt(sitePath);
+    const now = Math.floor(this.tick / TICKS_PER_WEEK);
+    if (life.week < now) life.advanceTo(Math.min(now, life.week + budget));
+    return { living: life.living, current: life.week >= now };
   }
 
   step(): SimEvent[] {

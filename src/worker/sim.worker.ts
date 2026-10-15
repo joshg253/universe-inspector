@@ -1,7 +1,7 @@
 // Runs generation and the tick loop off the main thread.
 import { Sim, dynFor } from '../core/sim';
 import { genBody, genRecord, genSite, genSystem, genUniverse } from '../core/generate';
-import { applyLife } from '../core/life';
+import { applyLife, TICKS_PER_WEEK } from '../core/life';
 import { parsePath, sitePathOf } from '../core/path';
 import { LEVELS, SPEED_GLYPHS, speedTps, type FromWorker, type ToWorker } from '../core/protocol';
 import type { SimEvent, View } from '../core/types';
@@ -23,6 +23,8 @@ let tpsT0 = performance.now();
 let tps = 0;
 let recordPath: string | null = null;
 let seenLifeVersion = 0;
+let bodyWeek = 0; // the week a planet view's populations were read at (-1 while a district is still catching up)
+let bodyBuilt = 0; // wall time of the last planet rebuild, so a fast run does not repost the list every interval
 let maxTick = 0; // the furthest this run has gone: the scrubber goes back anywhere up to it
 
 function buildView(path: string): View {
@@ -31,7 +33,29 @@ function buildView(path: string): View {
   const s = segs[0]?.i ?? 0;
   if (segs.length <= 1) return genSystem(sim.seed, s, sim.deltas);
   const b = segs[1]?.i ?? 0;
-  if (segs.length === 2) return genBody(sim.seed, s, b, sim.deltas);
+  if (segs.length === 2) {
+    const body = genBody(sim.seed, s, b, sim.deltas);
+    // The settlement list shows who lives there now, not who lived there at the start.
+    // Districts catch up in small steps within a time budget, so a late look is spread over a few builds instead of one long
+    // stall; the list shows what has been folded so far and the next build continues.
+    let behind = false;
+    if (sim.tick > 0) {
+      const until = performance.now() + 120;
+      let more = true;
+      while (more && performance.now() < until) {
+        more = false;
+        for (const st of body.sites) {
+          const r = sim.peekLiving(st.path, 260);
+          st.population = r.living;
+          if (!r.current) more = true;
+        }
+      }
+      behind = more;
+    }
+    bodyWeek = behind ? -1 : Math.floor(sim.tick / TICKS_PER_WEEK);
+    bodyBuilt = performance.now();
+    return body;
+  }
   const site = genSite(sim.seed, s, b, segs[2]?.i ?? 0, sim.deltas);
   const life = sim.lifeFor(site.path);
   return life ? applyLife(site, life) : site;
@@ -43,6 +67,11 @@ function recordFor(path: string) {
 
 /** When a watched district's population changed, push fresh counts and the open record. */
 function refreshLive(): void {
+  if (view?.level === 'body' && Math.floor(sim.tick / TICKS_PER_WEEK) !== bodyWeek && performance.now() - bodyBuilt >= 250) {
+    view = buildView(view.path);
+    postView();
+    if (recordPath && sitePathOf(recordPath)) ctx.postMessage({ type: 'record', record: recordFor(recordPath) });
+  }
   if (sim.lifeVersion === seenLifeVersion) return;
   seenLifeVersion = sim.lifeVersion;
   if (view?.level === 'site') {
@@ -101,6 +130,7 @@ setInterval(() => {
     tpsT0 = now;
     dirty = true;
   }
+  if (view?.level === 'body') refreshLive(); // a throttled or unfinished planet rebuild is picked up here, even while paused
   if (dirty) postTick();
 }, 50);
 

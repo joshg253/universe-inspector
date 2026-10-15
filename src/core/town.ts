@@ -1,7 +1,7 @@
 // Town layout: street network, plaza and hall, an optional river, then buildings packed along the streets.
 // Pure function of the rng it is given (so of seed + path). No theme words: it emits ids and cell codes.
 import { makeNoise, type Rng } from './rng';
-import type { BodyKind, DwellingKind, SizeClass, TownStyle } from './types';
+import type { DwellingKind, SizeClass, TownStyle } from './types';
 
 /** Cell codes of the district grid. Buildings are not in the grid; they are listed separately. */
 export const CELL = { ground: 0, road: 1, plaza: 2, green: 3, water: 4, track: 5 } as const;
@@ -59,7 +59,7 @@ const FOOTPRINTS: [number, number, number][] = [
 const DENSITY: Record<SizeClass, number> = { small: 0.5, medium: 0.65, large: 0.8 };
 const HALL: Record<SizeClass, [number, number]> = { small: [3, 3], medium: [4, 3], large: [4, 4] };
 
-export function layoutTown(N: number, size: SizeClass, population: number, bodyKind: BodyKind, r: Rng): TownLayout {
+export function layoutTown(N: number, size: SizeClass, population: number, riverChance: number, r: Rng): TownLayout {
   const cells = new Uint8Array(N * N);
   const occ = new Uint8Array(N * N); // 1 where a building stands
   const noise = makeNoise(r.u32());
@@ -189,7 +189,6 @@ export function layoutTown(N: number, size: SizeClass, population: number, bodyK
   }
 
   // ---- river: crosses the district, roads keep going over it (bridges)
-  const riverChance = bodyKind === 'temperate' ? 0.45 : bodyKind === 'arid' ? 0.08 : 0;
   if (r.chance(riverChance)) {
     const vertical = r.chance(0.5);
     const base = c + (r.chance(0.5) ? 1 : -1) * r.int(7, 13);

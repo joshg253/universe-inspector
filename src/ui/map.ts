@@ -13,8 +13,18 @@ export interface MapHooks {
 }
 
 /** How buildings are colored in a district: by what they are, how old they are, or how full they are. */
-export type Lens = 'kind' | 'age' | 'fill';
+export type Lens = 'kind' | 'age' | 'fill' | 'water' | 'soil' | 'timber' | 'stone';
+/** District lenses color buildings; planet lenses color the terrain by what each cell holds. 'kind' is the plain view of both. */
 export const LENSES: Lens[] = ['kind', 'age', 'fill'];
+export const PLANET_LENSES: Lens[] = ['kind', 'water', 'soil', 'timber', 'stone'];
+/** none .. plentiful, per layer (water: none, fresh, salt). */
+const LAYER_RAMPS: Record<'water' | 'soil' | 'timber' | 'stone', string[]> = {
+  water: ['#3a3a3a', '#46b6e8', '#1d4f9c'],
+  soil: ['#3a3a3a', '#a89060', '#8a6a34', '#5e3f18'],
+  timber: ['#3a3a3a', '#a8c070', '#5f9a3c', '#2a6a22'],
+  stone: ['#3a3a3a', '#b8b8b8', '#8a8a8a', '#5a5a64'],
+};
+const RATING_IDS = ['none', 'scarce', 'fair', 'plentiful'];
 
 /** Age bins in years (upper bound exclusive), oldest last. Warm and dark with age. */
 const AGE_BINS: [number, string][] = [
@@ -121,7 +131,7 @@ export class MapCanvas {
     this.canvas = h('canvas', { class: 'map-canvas' });
     this.ctx = this.canvas.getContext('2d')!;
     const btn = (label: string, title: string, fn: () => void) => h('button', { title, onclick: fn }, label);
-    this.lensSel = h('select', { title: 'Color buildings by', 'aria-label': 'Color buildings by', onchange: () => this.setLens(this.lensSel.value as Lens) });
+    this.lensSel = h('select', { title: 'Color by', 'aria-label': 'Color by', onchange: () => this.setLens(this.lensSel.value as Lens) });
     const buttons = h(
       'div',
       { class: 'mapbtns' },
@@ -177,6 +187,7 @@ export class MapCanvas {
     this.lens = lens;
     this.lensSel.value = lens;
     this.hooks.onLens?.(lens);
+    if (this.view?.level === 'body') this.off = this.buildOffscreen(this.view);
     this.redraw();
   }
 
@@ -187,13 +198,24 @@ export class MapCanvas {
     if (this.lens === 'age') this.redraw();
   }
 
+  /** The lens the current map actually shows: a lens that belongs to the other kind of map counts as plain. */
+  shownLens(): Lens {
+    const level = this.view?.level;
+    if (level !== 'site' && level !== 'body') return this.lens;
+    return (level === 'body' ? PLANET_LENSES : LENSES).includes(this.lens) ? this.lens : 'kind';
+  }
+
   /** The pack's words for the lens menu; rebuilt when the words change. */
   private renderLensMenu(): void {
-    const key = LENSES.map((l) => this.pack.t('lens.' + l)).join('|');
-    if (this.lensSel.dataset.key === key) return;
-    this.lensSel.dataset.key = key;
-    this.lensSel.replaceChildren(...LENSES.map((l) => h('option', { value: l }, this.pack.t('lens.' + l))));
-    this.lensSel.value = this.lens;
+    const planet = this.view?.level === 'body';
+    const list = planet ? PLANET_LENSES : LENSES;
+    const word = (l: Lens) => this.pack.t(planet && l === 'kind' ? 'lens.terrain' : 'lens.' + l);
+    const key = (planet ? 'p:' : 's:') + list.map(word).join('|');
+    if (this.lensSel.dataset.key !== key) {
+      this.lensSel.dataset.key = key;
+      this.lensSel.replaceChildren(...list.map((l) => h('option', { value: l }, word(l))));
+    }
+    this.lensSel.value = list.includes(this.lens) ? this.lens : 'kind';
   }
 
   /** The color a building gets under the current lens. */
@@ -316,9 +338,46 @@ export class MapCanvas {
         if (d.kind === 'home' || d.kind === 'shop') lines.push(`${room} ${d.capacity > 0 ? 'residents' : ''}`.trim());
         lines.push(d.builtWeek > 0 ? `Built year ${Math.floor((d.builtWeek * TICKS_PER_WEEK) / TICKS_PER_YEAR)}` : 'Stood from the start');
       }
+    } else if (path && v?.level === 'universe') {
+      const sys = v.systems.find((q) => q.path === path);
+      if (sys) {
+        const t = (k: string) => this.pack.t(k);
+        lines.push(this.pack.name('system', sys.nameKey), t('star.' + sys.cls), `${sys.bodyCount} ${t('field.bodies').toLowerCase()}`);
+      }
+    } else if (path && v?.level === 'system') {
+      const b = v.bodies.find((q) => q.path === path);
+      if (b) {
+        const t = (k: string) => this.pack.t(k);
+        lines.push(this.pack.name('body', b.nameKey, b.kind), t('body.' + b.kind));
+        if (b.kind !== 'gaseous') lines.push(`${t('field.water')}: ${b.waterPct}%`);
+        lines.push(`${b.siteCount} ${t('field.sites').toLowerCase()}`);
+      }
     } else if (path && v?.level === 'body') {
       const s = v.sites.find((q) => q.path === path);
-      if (s) lines.push(this.pack.name('site', s.nameKey, s.size), `${this.pack.t(`size.${s.size}`)} · ${s.population.toLocaleString('en-US')} people`);
+      if (s) {
+        const t = (k: string) => this.pack.t(k);
+        lines.push(this.pack.name('site', s.nameKey, s.size), `${t(`size.${s.size}`)} · ${s.population.toLocaleString('en-US')} people`);
+        const a = s.around;
+        const water = a.fresh > 0 && a.salt > 0 ? 'both' : a.fresh > 0 ? 'fresh' : 'salt';
+        lines.push(`${t('field.water')}: ${t('water.' + water)}`);
+        for (const k of ['soil', 'timber', 'stone', 'fish'] as const) lines.push(`${t('field.' + k)}: ${t('rating.' + RATING_IDS[a[k]])}`);
+      }
+    }
+    if (!path && v?.level === 'body' && v.kind !== 'gaseous') {
+      // Open ground: what the cell is and what it holds.
+      const cx = Math.floor((x - this.ox) / this.scale);
+      const cy = Math.floor((y - this.oy) / this.scale);
+      if (cx >= 0 && cy >= 0 && cx < v.w && cy < v.h) {
+        const i = cy * v.w + cx;
+        const t = (k: string) => this.pack.t(k);
+        lines.push(t('terrain.' + v.cells[i]));
+        const water = v.layers.water[i]!;
+        if (water > 0) lines.push(t('field.water') + ': ' + t(water === 1 ? 'water.fresh' : 'water.salt'));
+        for (const k of ['soil', 'timber', 'stone'] as const) {
+          const n = v.layers[k][i]!;
+          if (n > 0) lines.push(t('field.' + k) + ': ' + t('rating.' + RATING_IDS[n]));
+        }
+      }
     }
     if (lines.length === 0) {
       this.tip.style.display = 'none';
@@ -328,7 +387,7 @@ export class MapCanvas {
     this.tip.style.display = 'block';
     const w = this.root.clientWidth;
     this.tip.style.left = `${Math.min(x + 14, Math.max(0, w - 150))}px`;
-    this.tip.style.top = `${Math.max(0, Math.min(y + 14, this.root.clientHeight - 64))}px`;
+    this.tip.style.top = `${Math.max(0, Math.min(y + 14, this.root.clientHeight - 140))}px`;
   }
 
   private onUp(e: PointerEvent): void {
@@ -375,6 +434,18 @@ export class MapCanvas {
     const pal = this.pack.palette;
     if (v.level === 'body') {
       const colors = pal.terrain[v.kind].map(hexToRgb);
+      const layer = this.planetLayer(v);
+      if (layer) {
+        const ramp = LAYER_RAMPS[layer.id].map(hexToRgb);
+        for (let i = 0; i < v.cells.length; i++) {
+          const on = layer.data[i]!;
+          // Cells with none of it are the ramp's first color, the legend's "None".
+          const c = ramp[on]!;
+          img.data.set([c[0]!, c[1]!, c[2]!, 255], i * 4);
+        }
+        cx.putImageData(img, 0, 0);
+        return c;
+      }
       // Rock gets a little grain (display only, same every time) so a flat plateau never reads as open water.
       const grain = v.kind === 'barren' ? 7 : 0;
       for (let i = 0; i < v.cells.length; i++) {
@@ -399,6 +470,13 @@ export class MapCanvas {
     return c;
   }
 
+  /** The resource layer the planet map shows, if a planet lens is chosen. */
+  private planetLayer(v: View): { id: 'water' | 'soil' | 'timber' | 'stone'; data: Uint8Array } | null {
+    if (v.level !== 'body') return null;
+    const id = this.lens;
+    return id === 'water' || id === 'soil' || id === 'timber' || id === 'stone' ? { id, data: v.layers[id] } : null;
+  }
+
   /** Call after the pack changes so palette colors are rebuilt. */
   rebuild(): void {
     if (this.view) this.off = this.buildOffscreen(this.view);
@@ -407,13 +485,24 @@ export class MapCanvas {
 
   /** What the colors mean in a district; hidden on the other levels. */
   private drawLegend(v: View | null): void {
-    this.lensSel.style.display = v?.level === 'site' ? '' : 'none';
+    this.lensSel.style.display = v?.level === 'site' || (v?.level === 'body' && v.kind !== 'gaseous') ? '' : 'none';
     this.renderLensMenu();
-    const show = v?.level === 'site' && this.marks['site.legend'] !== false;
+    const layer = v ? this.planetLayer(v) : null;
+    const show = layer ? true : v?.level === 'site' && this.marks['site.legend'] !== false;
     this.legend.style.display = show ? '' : 'none';
     if (!show) return;
     const pal = this.pack.palette;
     const t = (k: string) => this.pack.t(k);
+    if (layer) {
+      const ramp = LAYER_RAMPS[layer.id];
+      const names = layer.id === 'water' ? ['none', 'fresh', 'salt'] : RATING_IDS;
+      const items = ramp.map((c, i): [string, string] => [c, t((layer.id === 'water' ? 'water.' : 'rating.') + names[i])]);
+      const key = layer.id + items.map((i) => i.join('|')).join(';');
+      if (this.legend.dataset.key === key) return;
+      this.legend.dataset.key = key;
+      this.legend.replaceChildren(...items.map(([c, label]) => h('span', { class: 'lg' }, h('i', { style: `background:${c}` }), label)));
+      return;
+    }
     const mid = (a: string, b: string) => {
       const x = hexToRgb(a);
       const y = hexToRgb(b);
