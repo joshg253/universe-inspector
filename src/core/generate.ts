@@ -707,7 +707,7 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
         const kids = kidsOf([me]);
         const mates = byId(kids.flatMap((k) => [k.mother, k.father])).filter((p) => p.id !== me.id);
         const grandkids = kidsOf(kids);
-        const middle = [...sibs, me, ...mates].sort((a, b) => a.id - b.id);
+        const middle = byId([...sibs, me, ...mates].map((p) => p.id)); // a sibling can also be the other parent of my child
         const rows = [
           { label: 'grandparents', items: grand },
           { label: 'parents', items: parents },

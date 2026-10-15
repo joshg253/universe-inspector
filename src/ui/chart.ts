@@ -23,6 +23,7 @@ function yRange(points: ChartPoint[]): [number, number] {
   let lo = Infinity;
   let hi = -Infinity;
   for (const p of points) {
+    if (!Number.isFinite(p.v)) continue;
     lo = Math.min(lo, p.v);
     hi = Math.max(hi, p.v);
   }
@@ -63,7 +64,7 @@ function trailingMean(points: ChartPoint[], window: number): ChartPoint[] {
 }
 
 export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: number) => string, opts: ChartOptions = {}): HTMLElement {
-  const M = opts.overlay && opts.overlay.points.length > 1 ? { ...M0, r: 30 } : M0;
+  const M = opts.overlay && opts.overlay.points.filter((p) => Number.isFinite(p.v)).length > 1 ? { ...M0, r: 30 } : M0;
   const box = h('div', { class: 'chart' });
   if (points.length < 2) {
     box.append(h('div', { class: 'hint' }, 'History appears once the simulation has run for a few weeks.'));
@@ -105,12 +106,21 @@ export function lineChart(title: string, points: ChartPoint[], fmtTime: (t: numb
 
   // Overlay on its own scale, labeled on the right edge, and the trailing average of the main line on the same scale.
   const legend: [string, string][] = [];
-  const ov = opts.overlay && opts.overlay.points.length > 1 ? opts.overlay.points : null;
+  const ov = opts.overlay && opts.overlay.points.filter((p) => Number.isFinite(p.v)).length > 1 ? opts.overlay.points : null;
   if (ov) {
     const [olo, ohi] = yRange(ov);
     const OY = (v: number) => M.t + (1 - (v - olo) / Math.max(1, ohi - olo)) * (H - M.t - M.b);
-    let od = `M${X(ov[0]!.t)},${OY(ov[0]!.v)}`;
-    for (let i = 1; i < ov.length; i++) od += ` L${X(ov[i]!.t)},${OY(ov[i]!.v)}`;
+    // A point with no value (nobody alive) ends the segment: the line is not drawn across the gap.
+    let od = '';
+    let pen = false;
+    for (const p of ov) {
+      if (!Number.isFinite(p.v)) {
+        pen = false;
+        continue;
+      }
+      od += `${pen ? ' L' : 'M'}${X(p.t)},${OY(p.v)}`;
+      pen = true;
+    }
     root.append(svg('path', { d: od, class: 'chart-over' }));
     for (const v of [olo, ohi]) {
       const l = svg('text', { x: W - M.r + 4, y: OY(v) + 3, class: 'chart-text chart-over-text' });

@@ -817,7 +817,7 @@ export function livingSeries(life: SiteLife, dwelling: number | null, offset = 0
   return sampleSeries(life.week, count, points);
 }
 
-/** The average age (whole years) of the people living in the district over time, on the same grid as `livingSeries`. */
+/** The average age (years, one decimal) of the people living over time, on the same grid as `livingSeries`. A stretch with nobody alive is NaN: a gap, so the line is not drawn across it. */
 export function meanAgeSeries(life: SiteLife, points = 96): SeriesPoint[] {
   const mean = (week: number): number => {
     const t = week * TICKS_PER_WEEK;
@@ -828,9 +828,9 @@ export function meanAgeSeries(life: SiteLife, points = 96): SeriesPoint[] {
       n++;
       sum += Math.max(0, Math.floor((t - p.birthTick) / TICKS_PER_YEAR));
     }
-    return n === 0 ? NaN : sum / n; // nobody alive: no average (left out, not plotted as 0)
+    return n === 0 ? NaN : sum / n; // nobody alive: a gap in the line (NaN), not an age of 0
   };
-  return sampleSeries(life.week, mean, points, (v) => Math.round(v * 10) / 10).filter((p) => Number.isFinite(p.v));
+  return sampleSeries(life.week, mean, points, (v) => Math.round(v * 10) / 10);
 }
 
 /** A district measure over time: standing dwellings, or births and deaths per year (the rate over each stretch). */

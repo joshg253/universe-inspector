@@ -65,16 +65,20 @@ try {
   console.log(ok ? 'ready' : 'TIMEOUT waiting for ' + waitSel, logs.length ? logs.join('\n') : 'no errors');
 } finally {
   try { ws?.close(); } catch {}
-  const closed = new Promise((r) => proc.once('exit', r));
   // Edge's first process hands off to a browser process that outlives it and keeps the profile open, so end every process
-  // that was started with this profile (and only those).
+  // that was started with this profile (and only those). The path goes in through the environment, never into the script
+  // text, so a temp path with a quote in it cannot change what runs; the timeout keeps a stalled process query from hanging us.
   proc.kill();
   spawnSync(
     'powershell',
-    ['-NoProfile', '-Command', `Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine -like '*${profile}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`],
-    { stdio: 'ignore' },
+    [
+      '-NoProfile',
+      '-Command',
+      `Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine.Contains($env:SHOT_PROFILE) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+    ],
+    { stdio: 'ignore', env: { ...process.env, SHOT_PROFILE: profile }, timeout: 15000 },
   );
-  await Promise.race([closed, sleep(3000)]);
+  await sleep(300); // let the files be released
   // The profile is about 1 GB: left alone, a few dozen shots fill the temp drive.
   try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch {}
 }

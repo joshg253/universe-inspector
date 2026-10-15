@@ -3,6 +3,7 @@
 // matches what is on screen (hidden layers are not clickable).
 import type { BodyView, DwellingSummary, Dyn, FeatureId, SiteView, SystemView, UniverseView, View } from '../core/types';
 import type { Pack } from '../packs/types';
+import { TICKS_PER_WEEK, TICKS_PER_YEAR } from '../core/life';
 import { h } from './dom';
 
 export interface MapHooks {
@@ -199,7 +200,7 @@ export class MapCanvas {
   private lensColor(d: DwellingSummary): string {
     if (this.lens === 'age') {
       if (d.builtWeek <= 0) return ORIGINAL; // stood from the start: its real age is not known
-      const years = (this.week - d.builtWeek) / 52;
+      const years = ((this.week - d.builtWeek) * TICKS_PER_WEEK) / TICKS_PER_YEAR;
       return AGE_BINS.find(([max]) => years < max)![1];
     }
     if (this.lens === 'fill') {
@@ -313,7 +314,7 @@ export class MapCanvas {
         const room = d.capacity > 0 ? `${d.residents} of ${d.capacity}` : `${d.residents}`;
         lines.push(`${this.pack.t(`dwelling.${d.kind}`)} · ${d.w * d.h + (d.extra?.length ?? 0)} cells`);
         if (d.kind === 'home' || d.kind === 'shop') lines.push(`${room} ${d.capacity > 0 ? 'residents' : ''}`.trim());
-        lines.push(d.builtWeek > 0 ? `Built year ${Math.floor(d.builtWeek / 52)}` : 'Stood from the start');
+        lines.push(d.builtWeek > 0 ? `Built year ${Math.floor((d.builtWeek * TICKS_PER_WEEK) / TICKS_PER_YEAR)}` : 'Stood from the start');
       }
     } else if (path && v?.level === 'body') {
       const s = v.sites.find((q) => q.path === path);

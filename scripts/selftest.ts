@@ -305,7 +305,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
       const first = young.people.slice(0, young.initial); // the starting residents come first, in id order
       const meanFirst = first.reduce((n, p) => n + Math.floor((0 - p.birthTick) / TICKS_PER_YEAR), 0) / first.length;
       assert.equal(ages[0]!.v, Math.round(meanFirst * 10) / 10, 'the average age starts at the starting residents');
-      assert.ok(ages.every((p) => Number.isFinite(p.v)), 'no gaps or NaN in the average-age line');
+      assert.ok(ages.every((p) => Number.isFinite(p.v)), 'a district that has people all along has no gaps in the average-age line');
       assert.ok(ages.some((p, i) => i > 0 && i < ages.length - 1 && !Number.isInteger(p.v)), 'interior points keep their decimal');
       assert.ok(rec.charts!.find((c) => c.label === 'population')!.overlay!.points.length > 0, 'the population graph carries the overlay');
     }
@@ -325,7 +325,11 @@ assert.equal(viewLevel('s1/b2'), 'body');
         if (!r.tree) continue;
         const rows = Object.fromEntries(r.tree.rows.map((row) => [row.label, row.items]));
         assert.ok(rows.family!.some((c) => c.path === path), 'the person is in their own row');
-        for (const row of r.tree.rows) assert.equal(new Set(row.items.map((c) => c.path)).size, row.items.length, 'no one twice in a row');
+        const seen = new Set<string>();
+        for (const row of r.tree.rows) {
+          assert.equal(new Set(row.items.map((c) => c.path)).size, row.items.length, 'no one twice in a row');
+          for (const c of row.items) if (row.label === 'family') (assert.ok(!seen.has(c.path)), seen.add(c.path));
+        }
         const kids = (rows.offspring ?? []).length;
         assert.equal(kids, L.people.filter((q) => q.mother === p.id || q.father === p.id).length, 'children match the record');
         assert.ok((rows.parents ?? []).length <= 2);

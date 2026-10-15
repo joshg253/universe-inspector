@@ -923,7 +923,9 @@ export function startApp(root: HTMLElement): void {
       resultsBody.append(h('div', { class: 'section-title' }, t('field.tree')));
       const tree = h('div', { class: 'famtree' });
       for (const row of r.tree.rows) {
-        const cells = row.items.map((c) => {
+        const cells = row.items
+          .filter((c) => !c.feature || state.features[c.feature])
+          .map((c) => {
           const meta = c.meta ? ` ${t(`sexshort.${c.meta.sex}`)}/${c.meta.age}${c.meta.dead ? ' †' : ''}` : '';
           return h(
             'a',
@@ -937,6 +939,7 @@ export function startApp(root: HTMLElement): void {
             h('small', null, meta.trim()),
           );
         });
+        if (cells.length === 0) continue; // everyone in this row is hidden by the inhabitants feature
         tree.append(h('div', { class: 'famcap' }, t(`field.${row.label}`)), h('div', { class: 'famrow' }, ...cells));
       }
       resultsBody.append(tree);
