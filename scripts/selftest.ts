@@ -1,7 +1,7 @@
 // Core invariants, run with `npm test`. No browser needed: core/ has no DOM.
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
-import { orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
+import { MAX_SOLAR_DAY, MIN_DAYS_PER_YEAR, orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
 import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, meanAgeSeries, residenceAt, applyLife, AGE_TOP, UNLOCK_AGE, AGE_NEEDS } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
@@ -275,6 +275,39 @@ assert.equal(viewLevel('s1/b2'), 'body');
     c.advance(3 * TICKS_PER_YEAR + 77 - 5003);
     assert.equal(c.tick, a.tick);
     assert.equal(json(c.lifeFor(site.path)!.people), json(a.lifeFor(site.path)!.people), 'chained jumps equal stepping');
+  }
+
+  // A late look is folded in slices (the host's foldBudget) and still lands exactly where one long fold does; it never stalls in one call.
+  {
+    const whole = new Sim(seed);
+    whole.setFocusFromPath(site.path);
+    whole.advance(40 * TICKS_PER_YEAR);
+    const sliced = new Sim(seed);
+    sliced.foldBudget = 50;
+    sliced.setFocusFromPath(site.path);
+    sliced.advance(40 * TICKS_PER_YEAR);
+    assert.ok(!sliced.watchedCurrent(), 'a budgeted fold is behind after a long jump');
+    assert.ok(sliced.lifeFor(site.path, true)!.week < whole.lifeFor(site.path)!.week, 'the lazy look does not fold it all');
+    let slices = 0;
+    const old: number[] = [];
+    while (!sliced.watchedCurrent()) {
+      for (const e of sliced.catchUp()) old.push(e.tick);
+      slices++;
+    }
+    assert.ok(old.every((t) => t >= sliced.tick - (52 + sliced.foldBudget) * TICKS_PER_WEEK), 'a budgeted jump reports only the last year (and a slice) of events');
+    // Stop: the clock goes back to the week the district reached, and what it folded is kept.
+    const half = new Sim(seed);
+    half.foldBudget = 50;
+    half.setFocusFromPath(site.path);
+    half.advance(40 * TICKS_PER_YEAR);
+    half.catchUp();
+    const reached = half.lifeFor(site.path, true)!.week;
+    half.stopAt([site.path]);
+    assert.equal(half.tick, reached * TICKS_PER_WEEK, 'stop puts the clock where the district is');
+    assert.equal(half.lifeFor(site.path, true)!.week, reached, 'stop keeps the folded district');
+    assert.ok(half.watchedCurrent(), 'and nothing is left to catch up');
+    assert.ok(slices > 1, 'the catch-up takes more than one slice');
+    assert.equal(json(sliced.lifeFor(site.path)!.people), json(whole.lifeFor(site.path)!.people), 'slices equal one fold');
   }
 
   // Rewinding (the time scrubber) gives the same people as a run that never went further.
@@ -872,8 +905,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
     foodSupply({ fresh: 2, salt: 0, soil: 2, timber: 0, stone: 0, fish: 1 }) > foodSupply({ fresh: 2, salt: 0, soil: 0, timber: 0, stone: 0, fish: 1 }),
     'soil adds food',
   );
-  const need = { mill: 'timber', quarry: 'stone', dock: 'fish' } as const;
-  const seen = { mill: 0, quarry: 0, dock: 0 };
+  const need = { mill: 'timber', quarry: 'stone', dock: 'fish', farm: 'soil', mine: 'stone' } as const;
+  const seen = { mill: 0, quarry: 0, dock: 0, farm: 0, mine: 0 };
   let fed = 0;
   let starved = 0;
   let pairs = 0;
@@ -901,12 +934,22 @@ assert.equal(viewLevel('s1/b2'), 'body');
       }
     }
   }
+  // No day longer than twice Mercury's, and never fewer than a quarter day per year (twice Mercury's half).
+  for (const s of ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta']) {
+    for (let si = 0; si < 25; si++) {
+      const sv = genSystem(s, si, new DeltaStore());
+      sv.bodies.forEach((b, bi) => {
+        const day = genBody(s, si, bi, new DeltaStore()).dayLength;
+        assert.ok(day <= MAX_SOLAR_DAY && b.period / day >= MIN_DAYS_PER_YEAR - 1e-9, `${s} s${si}/b${bi}: day ${day} h, year ${b.period} h`);
+      });
+    }
+  }
   // The local calendar: days per year is the orbit over the day, finite and positive on every body.
   for (const b of settledBodyIndexes('alpha', 0)) {
     const yd = genRecord('alpha', `s0/b${b}`, new DeltaStore()).fields.find((f) => f.label === 'yearDays')!.value as number;
     assert.ok(Number.isFinite(yd) && yd > 0, `days per year is positive: ${yd}`);
   }
-  assert.ok(seen.mill > 0 && seen.quarry > 0 && seen.dock > 0, `all resource workplaces occur: ${JSON.stringify(seen)}`);
+  assert.ok(seen.mill > 0 && seen.quarry > 0 && seen.dock > 0 && seen.farm > 0 && seen.mine > 0, `all resource workplaces occur: ${JSON.stringify(seen)}`);
   assert.ok(pairs >= 3 && fed > starved, `rich land grows more than poor: ${fed} vs ${starved}`);
 }
 
@@ -931,7 +974,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
           const [shops, works, workplaces] = [
             standing((k) => k === 'shop'),
             standing((k) => k === 'works'),
-            standing((k) => ['mill', 'quarry', 'dock', 'works'].includes(k)),
+            standing((k) => k !== 'home' && k !== 'hall' && k !== 'shop'),
           ];
           step.advanceTo(w);
           const now = step.ageAt(w);

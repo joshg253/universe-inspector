@@ -15,7 +15,7 @@ const PALETTE: Palette = {
   ground: '#4a4a2a',
   road: '#a58a5c',
   green: '#4f7a3a',
-  dwelling: { home: '#b08968', shop: '#d9a441', works: '#7a5a48', mill: '#8a6a3a', quarry: '#8d8d85', dock: '#4f7f8f', hall: '#e8d8b0' },
+  dwelling: { home: '#b08968', shop: '#d9a441', works: '#7a5a48', mill: '#8a6a3a', quarry: '#8d8d85', dock: '#4f7f8f', farm: '#9aa84f', mine: '#6b6b78', warehouse: '#a0805a', hall: '#e8d8b0' },
   mark: { site: '#e8c36a', anomaly: '#c04aa8', selected: '#ffffff', settled: '#e8c36a' },
 };
 
@@ -67,6 +67,9 @@ export const fantasy = definePack({
     'dwelling.mill': 'Sawmill',
     'dwelling.quarry': 'Quarry',
     'dwelling.dock': 'Wharf',
+    'dwelling.farm': 'Croft',
+    'dwelling.mine': 'Mine',
+    'dwelling.warehouse': 'Granary',
     'era.a0': 'Stone',
     'era.a1': 'Bronze',
     'era.a2': 'Iron',

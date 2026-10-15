@@ -4,8 +4,8 @@
 export type BodyKind = 'barren' | 'temperate' | 'arid' | 'frozen' | 'gaseous';
 export type StarClass = 'dim' | 'mid' | 'bright';
 export type SizeClass = 'small' | 'medium' | 'large';
-/** `mill`, `quarry` and `dock` are workplaces tied to what lies around the town (timber, stone, fish). */
-export type DwellingKind = 'home' | 'shop' | 'works' | 'mill' | 'quarry' | 'dock' | 'hall';
+/** `mill`, `quarry`, `dock`, `farm` and `mine` are workplaces tied to what lies around the town (timber, stone, fish, soil, stone); a `warehouse` is a workplace of the later ages. */
+export type DwellingKind = 'home' | 'shop' | 'works' | 'mill' | 'quarry' | 'dock' | 'farm' | 'mine' | 'warehouse' | 'hall';
 export type NameKind = 'universe' | 'system' | 'body' | 'site' | 'dwelling' | 'person' | 'anomaly';
 export type EventKind =
   | 'birth'

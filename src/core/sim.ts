@@ -31,6 +31,8 @@ export class Sim {
   /** Bumped whenever a watched district's life state changed, so the host knows to refresh views and records. */
   lifeVersion = 0;
   private lives = new Map<string, SiteLife>();
+  /** Most weeks the watched district folds per call (a host sets it so a late look never stalls; `catchUp` does the rest). */
+  foldBudget = Infinity;
 
   constructor(public readonly seed: string) {}
 
@@ -38,16 +40,54 @@ export class Sim {
     const s = parsePath(path)[0];
     if (s && s.k === 's') this.focus = s.i;
     this.watchSite = sitePathOf(path);
-    if (this.watchSite) this.lifeFor(this.watchSite);
+    if (this.watchSite) this.lifeFor(this.watchSite, true);
   }
 
   /** Life state of a settlement, fast-forwarded to the current tick. Null above settlement level. */
-  lifeFor(path: string): SiteLife | null {
+  lifeFor(path: string, lazy = false): SiteLife | null {
     const sitePath = sitePathOf(path);
     if (!sitePath) return null;
     const life = this.lifeAt(sitePath);
+    if (lazy && sitePath === this.watchSite) return life; // the watched district is folded in slices by `catchUp`
     life.advanceTo(Math.floor(this.tick / TICKS_PER_WEEK));
     return life;
+  }
+
+  /** Weeks a settlement's district still has to fold to reach the current week (all of them if it was never opened). */
+  behindOf(sitePath: string): number {
+    return Math.max(0, Math.floor(this.tick / TICKS_PER_WEEK) - (this.lives.get(sitePath)?.week ?? 0));
+  }
+
+  /** Weeks the watched district still has to fold to reach the current week. */
+  watchedBehind(): number {
+    const life = this.watchSite ? this.lives.get(this.watchSite) : undefined;
+    return life ? Math.max(0, Math.floor(this.tick / TICKS_PER_WEEK) - life.week) : 0;
+  }
+
+  /** Whether the watched district is folded up to the current week. */
+  watchedCurrent(): boolean {
+    const life = this.watchSite ? this.lives.get(this.watchSite) : undefined;
+    return !life || life.week >= Math.floor(this.tick / TICKS_PER_WEEK);
+  }
+
+  /**
+   * One slice of folding for the watched district while it is behind (see `foldWatched` for which events are reported).
+   */
+  catchUp(): SimEvent[] {
+    const events: SimEvent[] = [];
+    if (!this.watchedCurrent()) this.foldWatched(events);
+    return events;
+  }
+
+  /**
+   * End a jump where the districts have got to: the clock goes back to the earliest week any of the given settlements has
+   * folded. Nothing the watched district has folded is thrown away (it is at that week exactly).
+   */
+  stopAt(sitePaths: string[]): SimEvent[] {
+    const weeks = sitePaths.map((p) => this.lives.get(p)?.week).filter((w): w is number => w !== undefined);
+    if (weeks.length === 0) return [];
+    const to = Math.min(...weeks) * TICKS_PER_WEEK;
+    return to < this.tick ? this.goto(to) : [];
   }
 
   private lifeAt(sitePath: string): SiteLife {
@@ -86,9 +126,10 @@ export class Sim {
     if (!site || !life) return;
     const [s, b, t] = parsePath(site);
     const nameKey = bodySites(this.seed, s!.i, b!.i)[t!.i]?.nameKey ?? 0;
-    life.advanceTo(Math.floor(this.tick / TICKS_PER_WEEK), (e) =>
-      events.push({ tick: e.tick, kind: e.kind, path: site, nameKey, n: e.n ?? 1 }),
-    );
+    const now = Math.floor(this.tick / TICKS_PER_WEEK);
+    const to = Math.min(now, life.week + this.foldBudget);
+    // A slice that ends more than a year short of now is old history: folded, but not reported.
+    life.advanceTo(to, now - to > 52 ? undefined : (e) => events.push({ tick: e.tick, kind: e.kind, path: site, nameKey, n: e.n ?? 1 }));
     this.lifeVersion++;
   }
 
@@ -120,7 +161,7 @@ export class Sim {
     const week = Math.floor(to / TICKS_PER_WEEK);
     for (const [path, life] of this.lives) if (life.week > week) this.lives.delete(path);
     this.tick = to;
-    if (this.watchSite) this.lifeFor(this.watchSite);
+    if (this.watchSite) this.lifeFor(this.watchSite, true);
     this.lifeVersion++;
     return [];
   }
@@ -153,6 +194,9 @@ const LIT: Record<DwellingKind, [number, number]> = {
   mill: [0.7, 0.3],
   quarry: [0.7, 0.2],
   dock: [0.7, 0.4],
+  farm: [0.7, 0.1],
+  mine: [0.7, 0.3],
+  warehouse: [0.6, 0.2],
   hall: [0.9, 0.9],
 };
 

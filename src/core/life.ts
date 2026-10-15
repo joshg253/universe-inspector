@@ -50,10 +50,10 @@ const BUILD_PER_PRESSED_WEEK = 0.3 / 52;
 /** The age ladder: rungs 0..AGE_TOP, no skipping. Packs name them; core knows only the number. */
 export const AGE_TOP = 5;
 /** The first rung each kind of building can be built in (absent: from the start). Buildings keep their kind, so towns are layered. */
-export const UNLOCK_AGE: Record<string, number> = { mill: 1, quarry: 1, dock: 2, works: 3 };
+export const UNLOCK_AGE: Record<string, number> = { mill: 1, quarry: 1, farm: 1, dock: 2, mine: 2, works: 3, warehouse: 3 };
 /**
  * What a settlement needs standing (built, not ruined) before it leaves a rung for the next, by rung: people, shops, and
- * workplaces (a mill, quarry, dock or works; `works` alone for the later rungs), and `fresh` buildings finished during the current
+ * workplaces (a mill, quarry, farm, dock, mine, works or warehouse; `works` alone for the later rungs), and `fresh` buildings finished during the current
  * rung itself (the start rung counts what stood at tick 0), not only more from the older ages. A town that never gets them stalls there.
  */
 export const AGE_NEEDS: { pop: number; shop: number; work: number; works: number; fresh: number }[] = [
@@ -448,7 +448,7 @@ export class SiteLife {
       if (k !== 'hall' && this.builtWeek[d]! > since) fresh++;
       if (k === 'shop') shop++;
       else if (k === 'works') (works++, work++);
-      else if (k === 'mill' || k === 'quarry' || k === 'dock') work++;
+      else if (k !== 'home' && k !== 'hall') work++;
     });
     if (this.living >= need.pop && shop >= need.shop && work >= need.work && works >= need.works && fresh >= need.fresh) this.ageWeeks.push(week);
   }
