@@ -588,7 +588,7 @@ export function startApp(root: HTMLElement): void {
 
   const fieldValue = (value: string | number, vocab?: string): string => {
     if (vocab) return t(`${vocab}.${value}`);
-    return typeof value === 'number' ? value.toLocaleString() : String(value);
+    return typeof value === 'number' ? value.toLocaleString('en-US') : String(value);
   };
 
   const countItems = (v: View): { total: number; inspected: number } => {
@@ -607,7 +607,7 @@ export function startApp(root: HTMLElement): void {
 
   /** Chart time axis: days at first, then years. 1 tick = 1 hour. */
   const fmtTime = (tick: number): string =>
-    tick < YEAR * 2 ? `Day ${Math.floor(tick / DAY) + 1}` : `Year ${(tick / YEAR).toFixed(1)}`;
+    tick < YEAR * 2 ? `Day ${(Math.floor(tick / DAY) + 1).toLocaleString('en-US')}` : `Year ${(tick / YEAR).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`;
 
   const eventText = (e: SimEvent) => fmt(t(`event.${e.kind}`), { 0: nm('site', e.nameKey), n: e.n });
 
@@ -649,7 +649,7 @@ export function startApp(root: HTMLElement): void {
       bigTitle.textContent = nm(last.nameKind, last.nameKey, last.tag);
       levelLine.textContent = `Level ${depth(v.path) + 1} of 4: ${t(`level.${v.level}`)}`;
       const c = countItems(v);
-      kInView.textContent = c.total.toLocaleString();
+      kInView.textContent = c.total.toLocaleString('en-US');
       kInsp.textContent = `${c.inspected} of ${c.total}`;
     } else {
       bigTitle.textContent = 'Loading…';
@@ -661,11 +661,11 @@ export function startApp(root: HTMLElement): void {
     const running = state.speed > 0;
     stateLine.textContent = running ? `Running at ${SPEED_GLYPHS[state.speed]} (${speedText(state.speed)})` : 'Paused';
     stateLine.classList.toggle('running', running);
-    kTick.textContent = state.tick.toLocaleString();
-    kClock.textContent = `Day ${Math.floor(state.tick / DAY) + 1}, ${String(state.tick % DAY).padStart(2, '0')}:00`;
+    kTick.textContent = state.tick.toLocaleString('en-US');
+    kClock.textContent = `Day ${(Math.floor(state.tick / DAY) + 1).toLocaleString('en-US')}, ${String(state.tick % DAY).padStart(2, '0')}:00`;
     kLocal.textContent = state.dyn?.level === 'site' ? `${String(state.dyn.hour).padStart(2, '0')}:00 (daylight ${Math.round(state.dyn.daylight * 100)}%)` : '—';
     kRate.textContent = running ? `${Math.round(state.tps).toLocaleString('en-US')} ticks/s` : '0 ticks/s';
-    taskTray.textContent = `Tick ${state.tick.toLocaleString()}`;
+    taskTray.textContent = `Tick ${state.tick.toLocaleString('en-US')}`;
   }
 
   function renderList(): void {
@@ -714,7 +714,7 @@ export function startApp(root: HTMLElement): void {
     } else if (v.level === 'body') {
       section(t('list.sites'));
       for (const s of v.sites) {
-        row(s.path, nm('site', s.nameKey, s.size), `${t(`size.${s.size}`)} · ${s.population.toLocaleString()}${s.inspected ? ' · ✓' : ''}`);
+        row(s.path, nm('site', s.nameKey, s.size), `${t(`size.${s.size}`)} · ${s.population.toLocaleString('en-US')}${s.inspected ? ' · ✓' : ''}`);
       }
       if (state.features.anomalies && v.anomalies.length > 0) {
         section(t('list.anomalies'));
@@ -747,7 +747,7 @@ export function startApp(root: HTMLElement): void {
           map.redraw();
         },
       });
-      const text = t(m.word) + (m.count !== undefined ? ` ${m.count.toLocaleString()}` : '');
+      const text = t(m.word) + (m.count !== undefined ? ` ${m.count.toLocaleString('en-US')}` : '');
       marksRow.append(
         h(
           'label',
@@ -782,7 +782,7 @@ export function startApp(root: HTMLElement): void {
     } else {
       const residents = v.dwellings.reduce((n, d) => n + d.residents, 0);
       lines.push(`District grid ${v.w} × ${v.h} cells with ${v.dwellings.filter((d) => d.built).length} dwellings.`);
-      lines.push(`Population ${residents.toLocaleString()}. Lit windows follow local solar time.`);
+      lines.push(`Population ${residents.toLocaleString('en-US')}. Lit windows follow local solar time.`);
       lines.push('Double-click a dwelling to open its record.');
     }
     for (const l of lines) infoBox.append(h('div', null, l));
@@ -846,7 +846,7 @@ export function startApp(root: HTMLElement): void {
             'td',
             { class: 'v' },
             fieldValue(f.value, f.vocab),
-            f.range ? h('span', { class: 'range' }, ` (${t('field.min')} ${f.range.min} · ${t('field.max')} ${f.range.max}${f.range.perYear ? ` ${t('field.per_yr')}` : ''})`) : null,
+            f.range ? h('span', { class: 'range' }, ` (${t('field.min')} ${f.range.min.toLocaleString('en-US')} · ${t('field.max')} ${f.range.max.toLocaleString('en-US')}${f.range.perYear ? ` ${t('field.per_yr')}` : ''})`) : null,
           ),
         ),
       );

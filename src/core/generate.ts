@@ -4,7 +4,7 @@ import { YEAR } from './time';
 import { rngFor, makeNoise } from './rng';
 import { parsePath } from './path';
 import { layoutTown } from './town';
-import { appeal, buildResources, riverChance, surroundings, type Resources, type Surroundings } from './resources';
+import { appeal, buildResources, foodSupply, riverChance, surroundings, type Resources, type Surroundings } from './resources';
 import { SiteLife, ageAt, capacityOf, districtSeries, livingSeries, meanAgeSeries, visibleCells, type Person, type SiteLifeSeed } from './life';
 import type { DeltaStore } from './deltas';
 import type {
@@ -399,7 +399,7 @@ function siteCore(seed: string, si: number, bi: number, ti: number): SiteCore {
     const site = body.sites[ti];
     if (!site) throw new Error(`No site ${ti} on body ${bi}`);
     const around = surroundings(body.res, BODY_W, BODY_H, site.x, site.y);
-    const layout = layoutTown(SITE_N, site.size, site.population, riverChance(around), rngFor(seed, site.path, 'layout'));
+    const layout = layoutTown(SITE_N, site.size, site.population, riverChance(around), around, rngFor(seed, site.path, 'layout'));
     const dwellings: Base<DwellingSummary>[] = layout.buildings.map((b, index) => {
       const path = `${site.path}/d${index}`;
       return {
@@ -523,6 +523,7 @@ export function siteLifeSeed(seed: string, si: number, bi: number, ti: number): 
       plot: d.plot >= 0 ? sc.plots[d.plot] : undefined,
     })),
     grid: { n: SITE_N, cells: sc.cells },
+    food: foodSupply(sc.around),
   };
 }
 
@@ -602,6 +603,7 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
           num('orbit', Math.round(m.orbit * 10) / 10),
           num('period', m.period),
           num('dayLength', m.dayLength),
+          num('yearDays', Math.round((m.period / m.dayLength) * 10) / 10), // the local calendar: days per year come from spin and orbit
           num('sites', core.sites.length),
           num('anomalies', core.anomalies.length, 'anomalies'),
         ],
@@ -611,7 +613,6 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
     case 't': {
       const sc = siteCore(seed, si, bi, last.i);
       const life = live?.life ?? null;
-      const residents = life ? life.living : sc.dwellings.reduce((n, d) => n + d.residents, 0);
       const pop = life ? livingSeries(life, null) : [];
       const dw = life ? districtSeries(life, 'dwellings') : [];
       const births = life ? districtSeries(life, 'births') : [];
@@ -634,7 +635,6 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
           { label: 'fish', value: RATING[sc.around.fish]!, vocab: 'rating' },
           withRange(num('population', life ? life.living : sc.population), pop),
           withRange(num('dwellings', standing), dw),
-          withRange(num('residents', residents, 'inhabitants'), pop),
           ...(life
             ? [
                 withRange(num('births', life.totals.births, 'inhabitants'), births, true),
@@ -648,7 +648,6 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
           ? [
               { label: 'population', points: pop, overlay: { label: 'mean_age', points: meanAgeSeries(life) } },
               { label: 'dwellings', points: dw },
-              { label: 'residents', points: pop },
               { label: 'births', points: births, perYear: true },
               { label: 'deaths', points: deaths, perYear: true },
             ]
@@ -661,7 +660,8 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
       if (!d) throw new Error(`No dwelling ${last.i}`);
       const r = rngFor(seed, d.path, 'record');
       const condition = r.int(20, 100);
-      const output = Math.round(r.range(0, 100) * (d.kind === 'works' ? 1 : d.kind === 'shop' ? 0.7 : 0.3));
+      const rich = d.kind === 'mill' ? sc.around.timber : d.kind === 'quarry' ? sc.around.stone : d.kind === 'dock' ? sc.around.fish : 3; // a workplace yields what the land gives it
+      const output = Math.round(r.range(0, 100) * (d.kind === 'shop' ? 0.7 : d.kind === 'home' || d.kind === 'hall' ? 0.3 : 0.4 + 0.6 * (rich / 3)));
       const life = live?.life ?? null;
       const L = life ?? tick0Life(seed, si, bi, ti); // without a running district: the people as they start
       const T = life ? live!.tick : 0;

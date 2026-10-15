@@ -336,7 +336,7 @@ export class MapCanvas {
         const room = d.capacity > 0 ? `${d.residents} of ${d.capacity}` : `${d.residents}`;
         lines.push(`${this.pack.t(`dwelling.${d.kind}`)} · ${d.w * d.h + (d.extra?.length ?? 0)} cells`);
         if (d.kind === 'home' || d.kind === 'shop') lines.push(`${room} ${d.capacity > 0 ? 'residents' : ''}`.trim());
-        lines.push(d.builtWeek > 0 ? `Built year ${Math.floor((d.builtWeek * TICKS_PER_WEEK) / TICKS_PER_YEAR)}` : 'Stood from the start');
+        lines.push(d.builtWeek > 0 ? `Built year ${Math.floor((d.builtWeek * TICKS_PER_WEEK) / TICKS_PER_YEAR).toLocaleString('en-US')}` : 'Stood from the start');
       }
     } else if (path && v?.level === 'universe') {
       const sys = v.systems.find((q) => q.path === path);
@@ -523,6 +523,9 @@ export class MapCanvas {
               [pal.dwelling.home, t('dwelling.home')],
               [pal.dwelling.shop, t('dwelling.shop')],
               [pal.dwelling.works, t('dwelling.works')],
+              [pal.dwelling.mill, t('dwelling.mill')],
+              [pal.dwelling.quarry, t('dwelling.quarry')],
+              [pal.dwelling.dock, t('dwelling.dock')],
               [pal.dwelling.hall, t('dwelling.hall')],
             ];
     const items: [string, string][] = [
@@ -602,7 +605,7 @@ export class MapCanvas {
         ctx.lineWidth = 2;
         ctx.strokeRect(px - r - 6, py - r - 6, (r + 6) * 2, (r + 6) * 2);
       }
-      if (this.isSel(sys.path) || this.hover === sys.path || s >= 5) {
+      if (this.isSel(sys.path) || s >= 5) {
         this.label(this.pack.name('system', sys.nameKey), px + r + 6, py - r - 4);
       }
       this.hits.push({ path: sys.path, x: px, y: py, r: Math.max(r + 6, 10) });
@@ -674,7 +677,7 @@ export class MapCanvas {
         ctx.lineWidth = 2;
         ctx.strokeRect(px - r - 6, py - r - 6, (r + 6) * 2, (r + 6) * 2);
       }
-      if (this.isSel(b.path) || this.hover === b.path || s >= 5) {
+      if (this.isSel(b.path) || s >= 5) {
         this.label(this.pack.name('body', b.nameKey, b.kind), px + r + 6, py - r - 4);
       }
       this.hits.push({ path: b.path, x: px, y: py, r: Math.max(r + 6, 10) });
@@ -737,7 +740,7 @@ export class MapCanvas {
           ctx.lineWidth = 2;
           ctx.strokeRect(cx - sz - 4, cy - sz - 4, (sz + 4) * 2, (sz + 4) * 2);
         }
-        if (this.isSel(site.path) || this.hover === site.path) {
+        if (this.isSel(site.path)) { // hovering shows the tooltip, which carries the name
           this.label(this.pack.name('site', site.nameKey, site.size), cx + sz + 4, cy - sz);
         }
         this.hits.push({ path: site.path, x: cx, y: cy, r: sz + 5 });
@@ -880,7 +883,7 @@ export class MapCanvas {
         for (const c of d.extra ?? []) this.hits.push({ path: d.path, x: X(c.x), y: Y(c.y), r: 0, w: s, h: s });
       });
       for (const d of v.dwellings) {
-        if (d.built && (this.isSel(d.path) || this.hover === d.path)) {
+        if (d.built && this.isSel(d.path)) {
           this.label(this.pack.name('dwelling', d.nameKey, d.kind), X(d.x + d.w) + 4, Y(d.y));
         }
       }

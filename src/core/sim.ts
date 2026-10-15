@@ -150,6 +150,9 @@ const LIT: Record<DwellingKind, [number, number]> = {
   home: [0.1, 0.75],
   shop: [0.8, 0.15],
   works: [0.7, 0.35],
+  mill: [0.7, 0.3],
+  quarry: [0.7, 0.2],
+  dock: [0.7, 0.4],
   hall: [0.9, 0.9],
 };
 

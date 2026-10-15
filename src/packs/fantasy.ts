@@ -15,7 +15,7 @@ const PALETTE: Palette = {
   ground: '#4a4a2a',
   road: '#a58a5c',
   green: '#4f7a3a',
-  dwelling: { home: '#b08968', shop: '#d9a441', works: '#7a5a48', hall: '#e8d8b0' },
+  dwelling: { home: '#b08968', shop: '#d9a441', works: '#7a5a48', mill: '#8a6a3a', quarry: '#8d8d85', dock: '#4f7f8f', hall: '#e8d8b0' },
   mark: { site: '#e8c36a', anomaly: '#c04aa8', selected: '#ffffff', settled: '#e8c36a' },
 };
 
@@ -64,6 +64,9 @@ export const fantasy = definePack({
     'dwelling.home': 'Cottage',
     'dwelling.shop': 'Stall',
     'dwelling.works': 'Forge',
+    'dwelling.mill': 'Sawmill',
+    'dwelling.quarry': 'Quarry',
+    'dwelling.dock': 'Wharf',
     'dwelling.hall': 'Great hall',
     'role.laborer': 'Laborer',
     'role.artisan': 'Smith',
@@ -88,9 +91,7 @@ export const fantasy = definePack({
     'mark.settled': 'Peopled realms',
     'mark.residents': 'Folk',
     'field.anomalies': 'Omens seen',
-    'field.population': 'Souls',
     'field.dwellings': 'Dwellings in the quarter',
-    'field.residents': 'Folk',
     'field.capacity': 'Room for',
     'field.strength': 'Potency',
     'field.depth': 'Age (years)',
