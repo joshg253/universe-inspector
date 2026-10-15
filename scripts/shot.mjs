@@ -2,8 +2,8 @@
 // usage: scripts/run.cmd node scripts/shot.mjs "<url>" <out.png> [width] [height] [waitSelector]
 // SHOT_TEXT=1 also prints the text of the active left panel, to check content without reading the image.
 // url params: ?skin=amiga&pack=fantasy&seed=abc&view=s0/b0&ticks=2000  (view="" is the universe)
-import { spawn } from 'node:child_process';
-import { writeFileSync, mkdtempSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -65,6 +65,21 @@ try {
   console.log(ok ? 'ready' : 'TIMEOUT waiting for ' + waitSel, logs.length ? logs.join('\n') : 'no errors');
 } finally {
   try { ws?.close(); } catch {}
+  // Edge's first process hands off to a browser process that outlives it and keeps the profile open, so end every process
+  // that was started with this profile (and only those). The path goes in through the environment, never into the script
+  // text, so a temp path with a quote in it cannot change what runs; the timeout keeps a stalled process query from hanging us.
   proc.kill();
+  spawnSync(
+    'powershell',
+    [
+      '-NoProfile',
+      '-Command',
+      `Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" | Where-Object { $_.CommandLine.Contains($env:SHOT_PROFILE) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+    ],
+    { stdio: 'ignore', env: { ...process.env, SHOT_PROFILE: profile }, timeout: 15000 },
+  );
+  await sleep(300); // let the files be released
+  // The profile is about 1 GB: left alone, a few dozen shots fill the temp drive.
+  try { rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }); } catch {}
 }
 process.exit(0);

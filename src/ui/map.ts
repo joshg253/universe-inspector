@@ -1,14 +1,39 @@
 // The zoomable map. One canvas, three renderers (system / body / site).
 // Each draw pass records the clickable things it drew, so hit-testing always
 // matches what is on screen (hidden layers are not clickable).
-import type { BodyView, Dyn, FeatureId, SiteView, SystemView, UniverseView, View } from '../core/types';
+import type { BodyView, DwellingSummary, Dyn, FeatureId, SiteView, SystemView, UniverseView, View } from '../core/types';
 import type { Pack } from '../packs/types';
+import { TICKS_PER_WEEK, TICKS_PER_YEAR } from '../core/life';
 import { h } from './dom';
 
 export interface MapHooks {
   onSelect(path: string | null): void;
   onOpen(path: string): void;
+  onLens?(lens: Lens): void;
 }
+
+/** How buildings are colored in a district: by what they are, how old they are, or how full they are. */
+export type Lens = 'kind' | 'age' | 'fill';
+export const LENSES: Lens[] = ['kind', 'age', 'fill'];
+
+/** Age bins in years (upper bound exclusive), oldest last. Warm and dark with age. */
+const AGE_BINS: [number, string][] = [
+  [10, '#ffe08a'],
+  [30, '#f5b64a'],
+  [80, '#d9822b'],
+  [200, '#a8501f'],
+  [Infinity, '#6b2d14'],
+];
+/** Fill bins: share of capacity used. Buildings that hold nobody by design (works, hall) stay neutral. */
+const FILL_BINS: [number, string][] = [
+  [0.001, '#4a4a52'],
+  [0.5, '#8fb8d8'],
+  [1, '#4f8fc0'],
+  [Infinity, '#1f5f9f'],
+];
+const NEUTRAL = '#777777';
+/** Buildings that stood before the run began. */
+const ORIGINAL = '#8a7fb0';
 
 interface HitItem {
   path: string;
@@ -69,6 +94,7 @@ export class MapCanvas {
   marks: Record<string, boolean> = {};
   features: Record<FeatureId, boolean> = { anomalies: true, inhabitants: true, economy: true };
   sel: string | null = null;
+  lens: Lens = 'kind';
 
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -86,6 +112,8 @@ export class MapCanvas {
   private drag: { x: number; y: number; ox: number; oy: number; moved: boolean } | null = null;
   private raf = 0;
   private legend: HTMLElement;
+  private lensSel: HTMLSelectElement;
+  private week = 0;
   private tip: HTMLElement;
 
   constructor(pack: Pack, private hooks: MapHooks) {
@@ -93,9 +121,11 @@ export class MapCanvas {
     this.canvas = h('canvas', { class: 'map-canvas' });
     this.ctx = this.canvas.getContext('2d')!;
     const btn = (label: string, title: string, fn: () => void) => h('button', { title, onclick: fn }, label);
+    this.lensSel = h('select', { title: 'Color buildings by', 'aria-label': 'Color buildings by', onchange: () => this.setLens(this.lensSel.value as Lens) });
     const buttons = h(
       'div',
       { class: 'mapbtns' },
+      this.lensSel,
       btn('+', 'Zoom in', () => this.zoomAt(1.4, this.cssW / 2, this.cssH / 2)),
       btn('-', 'Zoom out', () => this.zoomAt(1 / 1.4, this.cssW / 2, this.cssH / 2)),
       btn('Fit', 'Fit to window', () => this.fit()),
@@ -141,6 +171,44 @@ export class MapCanvas {
       this.fit(false);
     }
     this.redraw();
+  }
+
+  setLens(lens: Lens): void {
+    this.lens = lens;
+    this.lensSel.value = lens;
+    this.hooks.onLens?.(lens);
+    this.redraw();
+  }
+
+  /** The week the run is at, for building age. */
+  setWeek(week: number): void {
+    if (week === this.week) return;
+    this.week = week;
+    if (this.lens === 'age') this.redraw();
+  }
+
+  /** The pack's words for the lens menu; rebuilt when the words change. */
+  private renderLensMenu(): void {
+    const key = LENSES.map((l) => this.pack.t('lens.' + l)).join('|');
+    if (this.lensSel.dataset.key === key) return;
+    this.lensSel.dataset.key = key;
+    this.lensSel.replaceChildren(...LENSES.map((l) => h('option', { value: l }, this.pack.t('lens.' + l))));
+    this.lensSel.value = this.lens;
+  }
+
+  /** The color a building gets under the current lens. */
+  private lensColor(d: DwellingSummary): string {
+    if (this.lens === 'age') {
+      if (d.builtWeek <= 0) return ORIGINAL; // stood from the start: its real age is not known
+      const years = ((this.week - d.builtWeek) * TICKS_PER_WEEK) / TICKS_PER_YEAR;
+      return AGE_BINS.find(([max]) => years < max)![1];
+    }
+    if (this.lens === 'fill') {
+      if (d.capacity <= 0) return NEUTRAL;
+      const share = d.residents / d.capacity;
+      return FILL_BINS.find(([max]) => share < max)![1];
+    }
+    return this.pack.palette.dwelling[d.kind];
   }
 
   setDyn(dyn: Dyn | null): void {
@@ -246,7 +314,7 @@ export class MapCanvas {
         const room = d.capacity > 0 ? `${d.residents} of ${d.capacity}` : `${d.residents}`;
         lines.push(`${this.pack.t(`dwelling.${d.kind}`)} · ${d.w * d.h + (d.extra?.length ?? 0)} cells`);
         if (d.kind === 'home' || d.kind === 'shop') lines.push(`${room} ${d.capacity > 0 ? 'residents' : ''}`.trim());
-        lines.push(d.builtWeek > 0 ? `Built year ${Math.floor(d.builtWeek / 52)}` : 'Stood from the start');
+        lines.push(d.builtWeek > 0 ? `Built year ${Math.floor((d.builtWeek * TICKS_PER_WEEK) / TICKS_PER_YEAR)}` : 'Stood from the start');
       }
     } else if (path && v?.level === 'body') {
       const s = v.sites.find((q) => q.path === path);
@@ -339,6 +407,8 @@ export class MapCanvas {
 
   /** What the colors mean in a district; hidden on the other levels. */
   private drawLegend(v: View | null): void {
+    this.lensSel.style.display = v?.level === 'site' ? '' : 'none';
+    this.renderLensMenu();
     const show = v?.level === 'site' && this.marks['site.legend'] !== false;
     this.legend.style.display = show ? '' : 'none';
     if (!show) return;
@@ -349,11 +419,25 @@ export class MapCanvas {
       const y = hexToRgb(b);
       return `rgb(${x.map((c, i) => Math.round((c + y[i]!) / 2)).join(',')})`;
     };
+    const bins = (list: [number, string][], label: (i: number) => string): [string, string][] =>
+      list.map(([, c], i) => [c, label(i)]);
+    const yr = t('lens.years');
+    const kinds: [string, string][] =
+      this.lens === 'age'
+        ? [
+            [ORIGINAL, t('lens.original')],
+            ...bins(AGE_BINS, (i) => (i === AGE_BINS.length - 1 ? AGE_BINS[i - 1]![0] + '+ ' + yr : '< ' + AGE_BINS[i]![0] + ' ' + yr)),
+          ]
+        : this.lens === 'fill'
+          ? [...bins(FILL_BINS, (i) => t('lens.fill' + i)), [NEUTRAL, t('lens.nobody')]]
+          : [
+              [pal.dwelling.home, t('dwelling.home')],
+              [pal.dwelling.shop, t('dwelling.shop')],
+              [pal.dwelling.works, t('dwelling.works')],
+              [pal.dwelling.hall, t('dwelling.hall')],
+            ];
     const items: [string, string][] = [
-      [pal.dwelling.home, t('dwelling.home')],
-      [pal.dwelling.shop, t('dwelling.shop')],
-      [pal.dwelling.works, t('dwelling.works')],
-      [pal.dwelling.hall, t('dwelling.hall')],
+      ...kinds,
       [pal.road, t('legend.road')],
       [mid(pal.road, pal.ground), t('legend.track')],
       [pal.plaza, t('legend.plaza')],
@@ -639,7 +723,7 @@ export class MapCanvas {
     if (showDwellings) {
       for (const d of v.dwellings) {
         if (!d.built) continue;
-        ctx.fillStyle = pal.dwelling[d.kind];
+        ctx.fillStyle = this.lensColor(d);
         const cells = footprint(d);
         for (const c of cells) ctx.fillRect(X(c.x), Y(c.y), s, s);
         ctx.strokeStyle = 'rgba(0,0,0,0.55)';

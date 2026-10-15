@@ -1762,3 +1762,94 @@ table.kv tr.statlink.on td {
   font-size: 0.9em;
   font-weight: normal;
 }
+
+/* A person's family tree: one row per generation, boxes you can click. */
+.famtree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.famrow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.fam {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 11px;
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid currentColor;
+}
+
+.fam small {
+  opacity: 0.7;
+}
+
+.fam.me {
+  font-weight: bold;
+  border-width: 2px;
+}
+
+/* Graph overlays: the running average (dashed) and a second measure on its own right-hand scale (dotted). */
+.chart-avg {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+  opacity: 0.75;
+}
+
+.chart-over {
+  fill: none;
+  stroke: #c0392b;
+  stroke-width: 1.5;
+  stroke-dasharray: 1 3;
+  stroke-linecap: round;
+}
+
+.chart-over-text {
+  fill: #c0392b;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+}
+
+.chart-legend .lg-avg::before,
+.chart-legend .lg-over::before {
+  content: '';
+  display: inline-block;
+  width: 16px;
+  margin-right: 4px;
+  vertical-align: middle;
+  border-top: 2px dashed currentColor;
+}
+
+.chart-legend .lg-over {
+  color: #c0392b;
+}
+
+.chart-legend .lg-over::before {
+  border-top-style: dotted;
+}
+
+.chart-opt {
+  font-size: 11px;
+}
+
+.famcap {
+  font-size: 10px;
+  text-align: center;
+  opacity: 0.65;
+  margin-bottom: -4px;
+}
