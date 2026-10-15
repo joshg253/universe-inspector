@@ -526,6 +526,9 @@ export class MapCanvas {
               [pal.dwelling.mill, t('dwelling.mill')],
               [pal.dwelling.quarry, t('dwelling.quarry')],
               [pal.dwelling.dock, t('dwelling.dock')],
+              [pal.dwelling.farm, t('dwelling.farm')],
+              [pal.dwelling.mine, t('dwelling.mine')],
+              [pal.dwelling.warehouse, t('dwelling.warehouse')],
               [pal.dwelling.hall, t('dwelling.hall')],
             ];
     const items: [string, string][] = [

@@ -136,6 +136,11 @@ export function orbitalPeriod(orbit: number, starMass: number): number {
   return Math.max(1, Math.round((YEAR * Math.pow(orbit / ORBIT_ONE_YEAR, 1.5)) / Math.sqrt(starMass)));
 }
 
+/** Bounds on a day, at twice the solar system's extremes: Mercury's sunrise-to-sunrise day is 4,222 hours and it has half a
+ *  day per year (3:2 spin-orbit resonance). Nothing is generated beyond them. Stand-in distribution; see the Wiki's Model notes. */
+export const MAX_SOLAR_DAY = 8444;
+export const MIN_DAYS_PER_YEAR = 0.25;
+
 /** Time from one sunrise to the next, in ticks. A positive spin turns the same way as the orbit; a negative (retrograde)
  *  spin shortens the day. Spin equal to the period never sees a sunrise, so that returns the largest safe number
  *  (callers nudge spins away from it; this only keeps the function total). */
@@ -164,9 +169,11 @@ function systemInfo(seed: string, si: number): SystemInfo {
       const [lo, hi] = SITE_TARGET[kind];
       const period = orbitalPeriod(orbit, STAR_MASS[cls]);
       // Most worlds turn in 10 to 40 hours; some are slow (Venus-like, up to months); a few turn backwards.
-      let spin = sr.chance(0.85) ? sr.range(10, 40) : sr.range(120, 3000);
-      if (spin > period * 0.8 && spin < period * 1.25) spin = period * 0.6; // not locked to a sunless day
-      spin = Math.round(spin); // whole ticks, so the stored spin reproduces the day exactly
+      let spin = Math.round(sr.chance(0.85) ? sr.range(10, 40) : sr.range(120, 3000)); // whole ticks, so the stored spin reproduces the day exactly
+      // Not locked to a sunless day, and no day longer than the bounds (checked on the rounded day, which is what is stored): the
+      // nearer the spin is to the orbit, the longer the day.
+      const day = Math.round(solarDay(spin, period));
+      if (day > MAX_SOLAR_DAY || period / day < MIN_DAYS_PER_YEAR) spin = Math.round(period * 0.6);
       if (sr.chance(0.08)) spin = -spin;
       bodies.push({
         path: bp,
@@ -662,7 +669,7 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
       if (!d) throw new Error(`No dwelling ${last.i}`);
       const r = rngFor(seed, d.path, 'record');
       const condition = r.int(20, 100);
-      const rich = d.kind === 'mill' ? sc.around.timber : d.kind === 'quarry' ? sc.around.stone : d.kind === 'dock' ? sc.around.fish : 3; // a workplace yields what the land gives it
+      const rich = d.kind === 'mill' ? sc.around.timber : d.kind === 'quarry' ? sc.around.stone : d.kind === 'dock' ? sc.around.fish : d.kind === 'farm' ? sc.around.soil : d.kind === 'mine' ? sc.around.stone : 3; // a workplace yields what the land gives it
       const output = Math.round(r.range(0, 100) * (d.kind === 'shop' ? 0.7 : d.kind === 'home' || d.kind === 'hall' ? 0.3 : 0.4 + 0.6 * (rich / 3)));
       const life = live?.life ?? null;
       const L = life ?? tick0Life(seed, si, bi, ti); // without a running district: the people as they start

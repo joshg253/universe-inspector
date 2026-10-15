@@ -156,6 +156,7 @@ export function startApp(root: HTMLElement): void {
     listSort: null as { col: 'name' | 'state'; dir: 1 | -1 } | null,
     speed: 0,
     tps: 0,
+    catchUp: null as { tps: number; left: number } | null,
     dyn: null as Dyn | null,
     events: [] as SimEvent[],
     tab: 'status' as Tab,
@@ -306,7 +307,11 @@ export function startApp(root: HTMLElement): void {
   // The step sizes are the ladder from an hour to 1,000 years (the same spans the speeds use).
   const STEP_SIZES: [string, number][] = LADDER.slice(0, 8).map((span) => [spanLabel(span), span]);
   const stepLevel = () => Math.min(3, depth(state.viewPath));
-  const stepNow = () => send({ type: 'step', n: state.stepTicks[stepLevel()] });
+  /** True while a jump is still working through its history: new jumps and running are held back (pausing is not). */
+  const busy = () => state.catchUp !== null || pendingYear !== null;
+  const stepNow = () => {
+    if (!busy()) send({ type: 'step', n: state.stepTicks[stepLevel()] });
+  };
   const btnStep = h('button', { title: 'Advance one step (.)', onclick: stepNow }, `${STEP_GLYPH} Step`);
   const stepSize = h(
     'select',
@@ -316,6 +321,8 @@ export function startApp(root: HTMLElement): void {
     },
     ...STEP_SIZES.map(([label, n]) => h('option', { value: String(n) }, label)),
   );
+  const catchLine = h('div', { class: 'help' });
+  catchLine.hidden = true;
   const speedBtns = SPEED_GLYPHS.map((glyph, i) => h('button', { class: 'speed', onclick: () => setSpeed(i) }, glyph));
   const speedLevel = () => Math.min(3, depth(state.viewPath));
   const speedText = (i: number) => (i === 0 ? 'Paused' : `${spanLabel(speedTps(speedLevel(), i))} per second`);
@@ -332,6 +339,7 @@ export function startApp(root: HTMLElement): void {
     hintLine,
     bigTitle,
     stateLine,
+    catchLine,
     levelLine,
     h('table', { class: 'kv' }, kvBody),
     listBox,
@@ -340,10 +348,25 @@ export function startApp(root: HTMLElement): void {
 
   // Jump to a year, or scrub anywhere within what has run (going back refolds the district from the start).
   const yearInput = h('input', { type: 'number', class: 'num', min: 0, step: 1, value: 0, title: 'Year to jump to' });
-  const goTo = (tick: number) => send({ type: 'goto', tick: Math.max(0, Math.round(tick)) });
+  // A year typed past the one-jump cap is chained: the next jump goes once the district has caught up, until the year is reached.
+  let pendingYear: number | null = null;
+  const goTo = (tick: number, typed = false) => {
+    pendingYear = typed ? tick / YEAR : null;
+    send({ type: 'goto', tick: Math.max(0, Math.round(tick)) });
+  };
+  const goYear = () => busy() || goTo((Number(yearInput.value) || 0) * YEAR, true);
+  /** Where the watched district has actually got to: the clock minus what it still has to fold. */
+  const foldedTick = () => state.tick - (state.catchUp?.left ?? 0);
+  // Stop ends a chained jump and winds the clock back to the year the district has reached.
+  const goBtn = h('button', { class: 'small', onclick: goYear }, 'Go');
+  const stopBtn = h('button', { class: 'small', title: 'Stop the jump here', onclick: () => {
+      pendingYear = null;
+      send({ type: 'stop' });
+    } }, 'Stop');
+  stopBtn.hidden = true;
   yearInput.addEventListener('keydown', (e) => {
     if ((e as KeyboardEvent).key === 'Enter') {
-      goTo((Number(yearInput.value) || 0) * YEAR);
+      goYear();
       yearInput.blur();
     }
   });
@@ -369,7 +392,7 @@ export function startApp(root: HTMLElement): void {
     h('div', { class: 'btnrow' }, btnOut, btnIn, btnInspect),
     h('div', { class: 'btnrow' }, btnStep, stepSize),
     h('div', { class: 'btnrow' }, ...speedBtns),
-    h('div', { class: 'btnrow' }, h('label', null, 'Year'), yearInput, h('button', { class: 'small', onclick: () => goTo((Number(yearInput.value) || 0) * YEAR) }, 'Go')),
+    h('div', { class: 'btnrow' }, h('label', null, 'Year'), yearInput, goBtn, stopBtn),
     h('div', { class: 'btnrow' }, scrub),
   );
 
@@ -664,7 +687,15 @@ export function startApp(root: HTMLElement): void {
     kTick.textContent = state.tick.toLocaleString('en-US');
     kClock.textContent = `Day ${(Math.floor(state.tick / DAY) + 1).toLocaleString('en-US')}, ${String(state.tick % DAY).padStart(2, '0')}:00`;
     kLocal.textContent = state.dyn?.level === 'site' ? `${String(state.dyn.hour).padStart(2, '0')}:00 (daylight ${Math.round(state.dyn.daylight * 100)}%)` : '—';
-    kRate.textContent = running ? `${Math.round(state.tps).toLocaleString('en-US')} ticks/s` : '0 ticks/s';
+    const c = state.catchUp;
+    const at = Math.floor((state.tick - (c?.left ?? 0)) / YEAR).toLocaleString('en-US');
+    kRate.textContent = pendingYear !== null
+      ? `${c && c.tps > 0 ? `${Math.round(c.tps).toLocaleString('en-US')} ticks/s, ` : ''}jumping to year ${Math.round(pendingYear).toLocaleString('en-US')} (at year ${at})`
+      : c
+      ? `${Math.round(c.tps).toLocaleString('en-US')} ticks/s, catching up (${Math.ceil(c.left / YEAR).toLocaleString('en-US')} yr to go)`
+      : running
+        ? `${Math.round(state.tps).toLocaleString('en-US')} ticks/s`
+        : '0 ticks/s';
     taskTray.textContent = `Tick ${state.tick.toLocaleString('en-US')}`;
   }
 
@@ -1043,6 +1074,7 @@ export function startApp(root: HTMLElement): void {
   }
 
   function setSpeed(i: number): void {
+    if (i > 0 && busy()) return; // no running while a jump is still settling
     state.speed = i;
     send({ type: 'speed', index: i });
     renderChrome();
@@ -1114,6 +1146,8 @@ export function startApp(root: HTMLElement): void {
 
   function resetUniverse(seed: string): void {
     state.seed = seed;
+    pendingYear = null;
+    state.catchUp = null;
     state.events = [];
     state.tick = 0;
     state.view = null;
@@ -1179,8 +1213,18 @@ export function startApp(root: HTMLElement): void {
         state.maxTick = m.maxTick;
         scrub.max = String(Math.floor(state.maxTick / TICKS_PER_WEEK));
         if (!scrubbing) scrub.value = String(Math.floor(m.tick / TICKS_PER_WEEK));
-        if (document.activeElement !== yearInput) yearInput.value = String(Math.floor(m.tick / YEAR));
+        if (pendingYear !== null) {
+          if (m.tick >= pendingYear * YEAR) pendingYear = null;
+          else if (!m.catchUp) goTo(pendingYear * YEAR, true);
+        }
         state.tps = m.tps;
+        state.catchUp = m.catchUp;
+        if (document.activeElement !== yearInput) yearInput.value = String(pendingYear !== null ? Math.round(pendingYear) : Math.floor(foldedTick() / YEAR)); // a jump shows its target
+        stopBtn.hidden = !busy();
+        goBtn.disabled = btnStep.disabled = yearInput.disabled = busy();
+        speedBtns.forEach((b, i) => (b.disabled = i > 0 && busy()));
+        catchLine.hidden = !busy();
+        catchLine.textContent = busy() ? 'Catching up: the settlements are still working through the years just jumped. Stop ends the jump where it has reached.' : '';
         state.dyn = m.dyn;
         map.setWeek(Math.floor(m.tick / TICKS_PER_WEEK));
         if (m.dyn && state.view && m.dyn.level === state.view.level) map.setDyn(m.dyn);

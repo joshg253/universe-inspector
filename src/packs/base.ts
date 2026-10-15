@@ -70,6 +70,9 @@ export const BASE_WORDS: Record<string, string> = {
   'dwelling.mill': 'Sawmill',
   'dwelling.quarry': 'Quarry',
   'dwelling.dock': 'Dock',
+  'dwelling.farm': 'Farm',
+  'dwelling.mine': 'Mine',
+  'dwelling.warehouse': 'Warehouse',
   'dwelling.hall': 'Hall',
 
   'role.child': 'Child',

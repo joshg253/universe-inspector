@@ -370,13 +370,16 @@ export function layoutTown(N: number, size: SizeClass, population: number, river
       mill: around.timber * (2 + 5 * d),
       quarry: around.stone * (2 + 5 * d),
       dock: around.fish * (2 + 4 * d),
+      farm: around.soil * (2 + 3 * d),
+      mine: around.stone * (1 + 3 * d),
+      warehouse: 1 + 5 * d,
     }) as DwellingKind;
     b.residents =
       b.kind === 'home'
         ? Math.max(1, Math.min(8, 1 + Math.floor(area * r.range(0.15, 0.55))))
         : b.kind === 'shop'
           ? r.int(0, 2) // the keeper's household lives above the shop
-          : (r.int(0, 3), 0); // works, mills, quarries, docks and the hall are workplaces; nobody lives there (draw kept, see above)
+          : (r.int(0, 3), 0); // works, mills, quarries, docks, farms, mines, warehouses and the hall are workplaces; nobody lives there (draw kept, see above)
     if (b.built !== 0) b.residents = 0; // nobody lives in what is not built yet
   }
 

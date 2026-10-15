@@ -159,7 +159,7 @@ progression through ages, all deterministic from the seed. You watch and inspect
       need water within 5 cells and prefer farmland; the district river chance comes from the fresh water nearby; the site
       record lists water, soil, timber, stone, fish. Towns get a mill, quarry or dock only where timber, stone or fish are around, farmsteads
       follow the soil, and a `food` figure (soil, fish, water) scales births, arrivals and new building. Still open: per-settlement
-      draw-down, ages gating, farm/mine/warehouse and other kinds, food as real stock.
+      draw-down, food as real stock (farm, mine and warehouse kinds are done, see Ages).
       A town dies when what it lives on is depleted or obsolete (flint, whale oil, a fuel an age moves past); the ruins stay
       on the map, and when a later age makes something there valuable (ore, silicon, oil) it is resettled: boom, bust,
       ghost town, boom. So a ruin keeps its plots as reserve, and a district's history has more than one founding.
@@ -337,6 +337,10 @@ progression through ages, all deterministic from the seed. You watch and inspect
 
 ## Inbox
 
+- [ ] **Investigate: long days and settlements:** a day longer than the year (down to 0.25 days per year, as Mercury is at 0.5) is
+      allowed but only shades the map. Look into whether a slow spin should cost food or growth, or favor a twilight band, and
+      whether settlements would migrate with the sun. Unknown for real planets (exoplanet spins are almost entirely unmeasured).
+
 - [ ] **Paths and roads between settlements:** as time goes on, tracks then roads appear on the planet map between towns that
       are close or trade, following easy ground (around water and peaks) and upgrading with the age (footpath, cart road, paved).
       A pure function of (seed, week) like the rest; needs trade/Resources first so a road exists because something travels it.
@@ -358,8 +362,7 @@ progression through ages, all deterministic from the seed. You watch and inspect
       palette / skin variables (hard-coded now); a settlement record rebuilds four series in separate passes over everyone who
       ever lived (share one pass if records get slow on long runs).
 
-- [ ] **More building types:** today a district has seven kinds (home, shop, works, mill, quarry, dock, hall). Still wanted: farm, mine,
-      warehouse, workshop, school, shrine, and so on, each tied to the resource or need that wants it (a farm town gets farms,
+- [ ] **More building types:** today a district has ten kinds (home, shop, works, mill, quarry, dock, farm, mine, warehouse, hall). Still wanted: workshop, school, shrine, and so on, each tied to the resource or need that wants it (a farm town gets farms,
       a mine town mines plus housing for the workers). The kind registry (`DwellingKind`, pack palette, legend, lens colors) is the one place to
       extend; do it with Resources step 1 so a kind exists because something asks for it.
 
