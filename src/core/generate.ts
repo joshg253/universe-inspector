@@ -250,6 +250,7 @@ function waterPercent(water: Uint8Array): number {
 }
 
 const RATING = ['none', 'scarce', 'fair', 'plentiful'];
+const AGE_IDS = ['a0', 'a1', 'a2', 'a3', 'a4', 'a5'];
 
 const bodyCache = new Map<string, BodyCore>();
 
@@ -633,6 +634,7 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
           { label: 'timber', value: RATING[sc.around.timber]!, vocab: 'rating' },
           { label: 'stone', value: RATING[sc.around.stone]!, vocab: 'rating' },
           { label: 'fish', value: RATING[sc.around.fish]!, vocab: 'rating' },
+          { label: 'era', value: AGE_IDS[(life ?? tick0Life(seed, si, bi, ti)).ageAt(life ? life.week : 0)]!, vocab: 'era' },
           withRange(num('population', life ? life.living : sc.population), pop),
           withRange(num('dwellings', standing), dw),
           ...(life

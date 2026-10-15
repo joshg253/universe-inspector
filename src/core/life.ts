@@ -47,6 +47,25 @@ const HOUSEHOLD_PER_VACANT_WEEK = 0.012 / 52;
 /** Chance per week, for each full home that cannot grow, that a reserve plot is started. */
 const BUILD_PER_PRESSED_WEEK = 0.3 / 52;
 
+/** The age ladder: rungs 0..AGE_TOP, no skipping. Packs name them; core knows only the number. */
+export const AGE_TOP = 5;
+/** The first rung each kind of building can be built in (absent: from the start). Buildings keep their kind, so towns are layered. */
+export const UNLOCK_AGE: Record<string, number> = { mill: 1, quarry: 1, dock: 2, works: 3 };
+/**
+ * What a settlement needs standing (built, not ruined) before it leaves a rung for the next, by rung: people, shops, and
+ * workplaces (a mill, quarry, dock or works; `works` alone for the later rungs), and `fresh` buildings finished during the current
+ * rung itself (the start rung counts what stood at tick 0), not only more from the older ages. A town that never gets them stalls there.
+ */
+export const AGE_NEEDS: { pop: number; shop: number; work: number; works: number; fresh: number }[] = [
+  { pop: 12, shop: 1, work: 0, works: 0, fresh: 8 },
+  { pop: 30, shop: 1, work: 1, works: 0, fresh: 6 },
+  { pop: 70, shop: 2, work: 2, works: 0, fresh: 6 },
+  { pop: 130, shop: 3, work: 3, works: 1, fresh: 8 },
+  { pop: 220, shop: 4, work: 4, works: 2, fresh: 8 },
+];
+/** Chance per week that a workplace plot whose age has come is started. */
+const WORKPLACE_PER_WEEK = 0.04;
+
 export type Sex = 'f' | 'm';
 
 export interface Person {
@@ -215,6 +234,10 @@ export class SiteLife {
   private readonly base: number;
   /** 0.55..1: how freely the district grows given its food (see `SiteLifeSeed.food`). */
   private readonly feed: number;
+  /** The rung the settlement starts at (from the seed). */
+  private readonly ageStart: number;
+  /** The week each rung above the start was reached, in order. */
+  private readonly ageWeeks: number[] = [];
   private readonly kinds: string[];
   /** The people alive now, in id order. The fold walks this instead of everyone who ever lived, so a long run costs
    *  time in proportion to the living, not to the dead that pile up. */
@@ -255,7 +278,9 @@ export class SiteLife {
     this.occ = new Uint8Array(data.grid.n * data.grid.n);
     this.origin = data.dwellings.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h }));
     this.plot = data.dwellings.map((d) => d.plot);
-    this.builtWeek = data.dwellings.map((d) => d.built ?? 0);
+    this.ageStart = Math.floor(roll(this.base, 0, 0, 50) * 2);
+    // A workplace whose age has not come is a reserve plot until it does, whatever week the layout gave it.
+    this.builtWeek = data.dwellings.map((d) => ((UNLOCK_AGE[d.kind] ?? 0) > this.ageStart ? -1 : d.built ?? 0));
     for (const d of data.dwellings) this.paintRect(d);
     this.ruinedWeek = data.dwellings.map(() => -1);
     this.started = data.dwellings.map(() => false);
@@ -399,6 +424,33 @@ export class SiteLife {
   /** The district's cells as laid out (footpaths of buildings finished later included). */
   get layoutCells(): Uint8Array {
     return this.grid.cells;
+  }
+
+  /** The settlement's age rung at a week: the start rung from the seed, one more for each rung's needs met by then. */
+  ageAt(week: number): number {
+    let n = 0;
+    while (n < this.ageWeeks.length && this.ageWeeks[n]! <= week) n++;
+    return this.ageStart + n;
+  }
+
+  /** The next rung is reached once what the current one needs is standing. */
+  private advanceAge(week: number): void {
+    const rung = this.ageStart + this.ageWeeks.length;
+    if (rung >= AGE_TOP) return;
+    const need = AGE_NEEDS[rung]!;
+    let shop = 0;
+    let work = 0;
+    let works = 0;
+    let fresh = 0;
+    const since = this.ageWeeks.length > 0 ? this.ageWeeks[this.ageWeeks.length - 1]! : -1; // finished after the rung was reached
+    this.kinds.forEach((k, d) => {
+      if (!this.isBuilt(d, week)) return;
+      if (k !== 'hall' && this.builtWeek[d]! > since) fresh++;
+      if (k === 'shop') shop++;
+      else if (k === 'works') (works++, work++);
+      else if (k === 'mill' || k === 'quarry' || k === 'dock') work++;
+    });
+    if (this.living >= need.pop && shop >= need.shop && work >= need.work && works >= need.works && fresh >= need.fresh) this.ageWeeks.push(week);
   }
 
   /** The week a dwelling is finished now: -1 while it is a reserve nobody has started. */
@@ -559,6 +611,8 @@ export class SiteLife {
     const base = this.base;
     const emit = (kind: LifeEvent['kind'], dwelling: number, n?: number) => onEvent?.({ tick, kind, dwelling, n });
     const season = seasonOf(base, week);
+    this.advanceAge(week);
+    const age = this.ageAt(week);
     // Crowding: a district that has outgrown its starting population births and receives fewer; one that has shrunk,
     // more. Keeps long runs from running away to the building cap or dying out.
     const fortune = fortuneOf(base, week);
@@ -702,12 +756,26 @@ export class SiteLife {
       if (this.started[d] && this.builtWeek[d]! > week) underway++;
       else if (this.kinds[d] === 'home' && this.boxedIn[d] && g.length >= this.capacity(d)) pressed++;
     });
+    let startedNow = false;
     if (pressed > underway && roll(base, week, 0, 24) < pressed * BUILD_PER_PRESSED_WEEK * this.feed) {
       let pick = -1;
       for (let d = 0; d < this.builtWeek.length && pick < 0; d++) if (this.builtWeek[d] === -1 && this.kinds[d] === 'home') pick = d;
-      for (let d = 0; d < this.builtWeek.length && pick < 0; d++) if (this.builtWeek[d] === -1) pick = d;
+      for (let d = 0; d < this.builtWeek.length && pick < 0; d++) {
+        if (this.builtWeek[d] === -1 && (UNLOCK_AGE[this.kinds[d]!] ?? 0) <= age) pick = d;
+      }
       if (pick >= 0) this.builtWeek[pick] = week + 20 + Math.floor(roll(base, week, 1, 27) * 32);
       if (pick >= 0) this.started[pick] = true;
+      startedNow = pick >= 0;
+    }
+
+    // A workplace whose age has come is started now and then, one at a time.
+    if (underway === 0 && !startedNow && roll(base, week, 0, 51) < WORKPLACE_PER_WEEK * this.feed) {
+      for (let d = 0; d < this.builtWeek.length; d++) {
+        if (this.builtWeek[d] !== -1 || this.started[d] || (UNLOCK_AGE[this.kinds[d]!] ?? 0) === 0 || (UNLOCK_AGE[this.kinds[d]!] ?? 0) > age) continue;
+        this.builtWeek[d] = week + 20 + Math.floor(roll(base, week, 2, 27) * 32);
+        this.started[d] = true;
+        break;
+      }
     }
 
     // A home finished this week is built because someone needs it: a household arrives with it.

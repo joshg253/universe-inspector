@@ -106,7 +106,10 @@ progression through ages, all deterministic from the seed. You watch and inspect
       (different building, town, planet) moves it up for most couples and down for some, by a per-person
       disposition such as independent or clingy, so no flat rule; separation and a quarrel are the same event with a
       reason on each person's record), after which both are unlinked and either can partner again. Needs a Model-notes entry.
-- [ ] **Ages and what gets built:** no calendar year (systems evolve separately). A fixed ordered ladder of ages
+- [~] **Ages and what gets built:** done: a settlement has an age rung (0..5, `SiteLife.ageAt(week)`: start rung from the seed, a rung is left once `AGE_NEEDS` stand: people, shops, workplaces, works, and 6 to 8 buildings finished in the current rung itself)
+      that gates when mills, quarries (rung 1), docks (2) and works (3) are built; shown as the Age field, named by the pack. Still open: the full building
+      catalog (needs per building, not per count), need-driven picks, resource deposits by age.
+      Original idea: no calendar year (systems evolve separately). A fixed ordered ladder of ages
       (about 6, no skipping); each settlement has a starting rung and a pace from the seed, `ageAt(site, tick)` is
       pure, core knows only the rung number, packs name ages and may stop short. A building catalog (data: age it
       unlocks, footprint, staff, produces/consumes, key-for-age flag). Each build step picks the next building by
