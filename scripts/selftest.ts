@@ -5,6 +5,7 @@ import { orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSys
 import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, meanAgeSeries, residenceAt, applyLife } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
+import { buildResources, riverChance } from '../src/core/resources';
 import { rngFor } from '../src/core/rng';
 import { Sim, dynFor } from '../src/core/sim';
 import { packOf, PACKS } from '../src/packs';
@@ -94,7 +95,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
 {
   const run = () =>
     ['small', 'medium', 'large'].map((size, i) =>
-      json(layoutTown(64, size as 'small' | 'medium' | 'large', [40, 700, 5000][i]!, 'temperate', rngFor('alpha', `town/${size}`, 'layout'))),
+      json(layoutTown(64, size as 'small' | 'medium' | 'large', [40, 700, 5000][i]!, 0.45, rngFor('alpha', `town/${size}`, 'layout'))),
     );
   const native = run();
   const nativeSort = Array.prototype.sort;
@@ -757,6 +758,109 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.ok(farms > 20, `farmsteads far from the center: ${farms}`);
   assert.ok(reserved > 0 && reserveUsed > 0 && reserveUsed < reserved, `reserve plots are built when needed, not all at once: ${reserveUsed}/${reserved}`);
   assert.ok(standing > 0 && filled > standing / 3, `built later buildings filled: ${filled}/${standing}`);
+}
+
+// Resources, by hand: a water body of 90 cells is a sea, one of 89 a lake; a gas giant holds nothing; rivers follow fresh water.
+{
+  const W = 40;
+  const H = 12;
+  const cells = new Uint8Array(W * H).fill(3);
+  for (let y = 0; y < 9; y++) for (let x = 0; x < 10; x++) cells[y * W + x] = 0; // 90 cells
+  for (let y = 0; y < 9; y++) for (let x = 20; x < 29; x++) cells[y * W + x] = 1; // 81 cells
+  for (let x = 20; x < 28; x++) cells[9 * W + x] = 1; // 8 more: 89
+  const flat = () => 0.5;
+  const r = buildResources(cells, W, H, 'temperate', flat, flat);
+  assert.equal(r.water[0], 2, '90 connected cells is salt');
+  assert.equal(r.water[20], 1, '89 connected cells is fresh');
+  assert.equal(r.water[11 * W + 35], 0, 'land has no water');
+  assert.equal(r.soil[0], 0, 'no soil under water');
+  assert.ok(r.soil[11 * W + 35]! > 0, 'lowland holds soil');
+  const gas = buildResources(cells, W, H, 'gaseous', flat, flat);
+  assert.ok([gas.water, gas.soil, gas.timber, gas.stone].every((a) => a.every((v) => v === 0)), 'a gas giant holds nothing');
+  const base = { fresh: 0, salt: 0, soil: 0, timber: 0, stone: 0, fish: 0 };
+  assert.equal(riverChance(base), 0, 'no water, no river');
+  assert.ok(riverChance({ ...base, salt: 2 }) > 0 && riverChance({ ...base, salt: 2 }) < riverChance({ ...base, fresh: 1 }), 'a coast alone gives a creek at most');
+  assert.ok(riverChance({ ...base, fresh: 1 }) < riverChance({ ...base, fresh: 2 }) && riverChance({ ...base, fresh: 2 }) < riverChance({ ...base, fresh: 3 }), 'more fresh water, likelier river');
+}
+
+// Resources: layers are per cell and deterministic; towns start near water and workable ground; a river needs fresh water near.
+{
+  let sites = 0;
+  let wet = 0;
+  let cells = 0;
+  let wetCells = 0;
+  let salt = 0;
+  let fresh = 0;
+  let riverTowns = 0;
+  let dryRivers = 0;
+  const byFresh = { wet: [0, 0], dry: [0, 0] }; // [districts, with a river]
+  for (const seed of ['alpha', 'beta', 'first-light', 'gamma']) {
+    for (let si = 0; si < 8; si++) {
+      for (const b of genSystem(seed, si, d).bodies) {
+        const body = genBody(seed, si, b.index, d);
+        const again = genBody(seed, si, b.index, d);
+        assert.equal(json(body.layers), json(again.layers), 'layers are deterministic');
+        for (const k of ['water', 'soil', 'timber', 'stone'] as const) assert.equal(body.layers[k].length, body.cells.length);
+        const wetCount = body.layers.water.reduce((n, w) => n + (w ? 1 : 0), 0);
+        assert.equal(b.waterPct, Math.round((wetCount * 100) / body.cells.length), 'the system map knows how wet a planet is');
+        if (body.kind === 'gaseous') continue;
+        if (body.kind === 'barren') assert.equal(body.sites.length, 0, 'a body without water has no towns');
+        for (let i = 0; i < body.cells.length; i++) {
+          if (body.cells[i]! > 1) assert.equal(body.layers.water[i], 0, 'land holds no water');
+          else {
+            assert.ok(body.layers.water[i] === 1 || body.layers.water[i] === 2, 'water cells are fresh or salt');
+            assert.equal(body.layers.soil[i], 0, 'no soil under water');
+          }
+          if (body.layers.water[i] === 2) salt++;
+          if (body.layers.water[i] === 1) fresh++;
+        }
+        if (body.kind !== 'barren') {
+          for (const st of body.sites) {
+            sites++;
+            const near = (x: number, y: number) => {
+              for (let dy = -5; dy <= 5; dy++) for (let dx = -5; dx <= 5; dx++) {
+                const xx = x + dx;
+                const yy = y + dy;
+                if (xx >= 0 && yy >= 0 && xx < body.w && yy < body.h && body.layers.water[yy * body.w + xx]) return true;
+              }
+              return false;
+            };
+            assert.ok(near(st.x, st.y), `a town has water within reach: ${st.path}`);
+            assert.ok(st.around.fresh > 0 || st.around.salt > 0, 'and its summary says so');
+            wet++;
+            const site = genSite(seed, si, b.index, st.index, d);
+            const hasRiver = site.cells.includes(4);
+            const grp = st.around.fresh >= 2 ? byFresh.wet : st.around.fresh === 0 ? byFresh.dry : null;
+            if (grp) {
+              grp[0]++;
+              if (hasRiver) grp[1]++;
+            }
+            if (hasRiver) {
+              riverTowns++;
+              if (!near(st.x, st.y)) dryRivers++;
+            }
+          }
+          for (let y = 4; y < body.h - 4; y++) for (let x = 4; x < body.w - 4; x++) {
+            const c = body.cells[y * body.w + x]!;
+            if (c < 2 || c > 4) continue;
+            cells++;
+            let w = false;
+            for (let dy = -5; dy <= 5 && !w; dy++) for (let dx = -5; dx <= 5 && !w; dx++) if (body.layers.water[(y + dy) * body.w + x + dx]) w = true;
+            if (w) wetCells++;
+          }
+        }
+      }
+    }
+  }
+  assert.ok(salt > 0 && fresh > 0, `both kinds of water occur: ${salt} salt, ${fresh} fresh`);
+  assert.ok(sites > 20, `enough towns to compare: ${sites}`);
+  assert.ok(wet / sites > wetCells / cells + 0.03, `towns sit nearer water than chance: ${wet}/${sites} vs ${wetCells}/${cells}`);
+  assert.equal(dryRivers, 0, 'a river only crosses a district that has water nearby');
+  assert.ok(byFresh.wet[0] >= 10 && byFresh.dry[0] >= 3, `samples: ${byFresh.wet} vs ${byFresh.dry}`);
+  {
+    assert.ok(byFresh.wet[1] / byFresh.wet[0] > byFresh.dry[1] / byFresh.dry[0], `fresh water makes rivers likelier: ${byFresh.wet} vs ${byFresh.dry}`);
+  }
+  assert.ok(riverTowns > 0, 'some districts have a river');
 }
 
 console.log(`ok: walked ${walked} settlements across 18 systems; names: ${names.join(' / ')}`);

@@ -38,6 +38,8 @@ export interface BodySummary {
   phase: number; // radians at tick 0
   size: number;
   siteCount: number;
+  /** Percent of the surface under water (0 for a gas giant). */
+  waterPct: number;
   inspected: boolean;
 }
 
@@ -48,8 +50,10 @@ export interface SiteSummary {
   x: number;
   y: number;
   size: SizeClass;
-  /** On a planet list: the people its district holds at tick 0. (Only the layout generator sees the notional size.) */
+  /** On a planet list: the people its district holds at tick 0 (the worker replaces it with the live count when the run is later). */
   population: number;
+  /** What the planet offers within reach of the site, 0..3 each (none .. plentiful). */
+  around: { fresh: number; salt: number; soil: number; timber: number; stone: number; fish: number };
   inspected: boolean;
 }
 
@@ -138,6 +142,8 @@ export interface BodyView {
   h: number;
   /** terrain class 0..6 per cell (deep water .. summit); for gas bodies, a band index */
   cells: Uint8Array;
+  /** Resource layers per cell: water 0 none / 1 fresh / 2 salt; soil, timber, stone 0..3 (none .. plentiful) */
+  layers: { water: Uint8Array; soil: Uint8Array; timber: Uint8Array; stone: Uint8Array };
   dayLength: number;
   sites: SiteSummary[];
   anomalies: AnomalySummary[];

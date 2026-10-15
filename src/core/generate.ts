@@ -4,6 +4,7 @@ import { YEAR } from './time';
 import { rngFor, makeNoise } from './rng';
 import { parsePath } from './path';
 import { layoutTown } from './town';
+import { appeal, buildResources, riverChance, surroundings, type Resources, type Surroundings } from './resources';
 import { SiteLife, ageAt, capacityOf, districtSeries, livingSeries, meanAgeSeries, visibleCells, type Person, type SiteLifeSeed } from './life';
 import type { DeltaStore } from './deltas';
 import type {
@@ -119,7 +120,7 @@ const SITE_TARGET: Record<BodyKind, [number, number]> = {
   temperate: [4, 9],
   arid: [2, 5],
   frozen: [1, 3],
-  barren: [0, 2],
+  barren: [0, 2], // no water on barren bodies, so no site is ever accepted; the draw stays so other seeds are unchanged
   gaseous: [0, 0],
 };
 
@@ -200,6 +201,7 @@ export function genSystem(seed: string, si: number, deltas: DeltaStore): SystemV
     phase: b.phase,
     size: b.size,
     siteCount: bodyCore(seed, si, b.index).sites.length,
+    waterPct: waterPercent(bodyCore(seed, si, b.index).res.water),
     inspected: deltas.isInspected(b.path),
   }));
   return {
@@ -219,6 +221,7 @@ type Base<T> = Omit<T, 'inspected'>;
 interface BodyCore {
   meta: BodyMeta;
   cells: Uint8Array;
+  res: Resources;
   sites: Base<SiteSummary>[];
   anomalies: Base<AnomalySummary>[];
 }
@@ -239,6 +242,14 @@ function classify(kind: BodyKind, h: number): number {
   if (h < sea + 0.04) return 2;
   return h < 0.62 ? 3 : h < 0.74 ? 4 : h < 0.85 ? 5 : 6;
 }
+
+function waterPercent(water: Uint8Array): number {
+  let n = 0;
+  for (const w of water) if (w) n++;
+  return Math.round((n * 100) / water.length);
+}
+
+const RATING = ['none', 'scarce', 'fair', 'plentiful'];
 
 const bodyCache = new Map<string, BodyCore>();
 
@@ -265,6 +276,10 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
       }
     }
 
+    const rn = makeNoise(rngFor(seed, meta.path, 'resources').u32());
+    const gn = makeNoise(rngFor(seed, meta.path, 'grain').u32());
+    const res = buildResources(cells, W, H, meta.kind, rn.noise, gn.noise);
+
     const sites: Base<SiteSummary>[] = [];
     const sr = rngFor(seed, meta.path, 'sites');
     for (let attempt = 0; attempt < 400 && sites.length < meta.siteTarget; attempt++) {
@@ -273,11 +288,15 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
       const c = cells[y * W + x] as number;
       if (c < 2 || c > 4) continue;
       if (sites.some((s) => Math.hypot(s.x - x, s.y - y) < 9)) continue;
+      // Towns start by water, and prefer ground to farm: a poorer place is still taken now and then.
+      const near = surroundings(res, W, H, x, y);
+      if (near.fresh === 0 && near.salt === 0) continue; // nobody settles without water, so a dry body stays empty
+      if (!sr.chance(appeal(near))) continue;
       const population =
-        meta.kind === 'barren' ? sr.int(8, 60) : Math.round(Math.pow(10, sr.range(1.6, 3.9)));
+        Math.round(Math.pow(10, sr.range(1.6, 3.9)));
       const size: SizeClass = population < 300 ? 'small' : population < 2000 ? 'medium' : 'large';
       const index = sites.length;
-      sites.push({ path: `${meta.path}/t${index}`, index, nameKey: sr.u32(), x, y, size, population });
+      sites.push({ path: `${meta.path}/t${index}`, index, nameKey: sr.u32(), x, y, size, population, around: near });
     }
 
     const anomalies: Base<AnomalySummary>[] = [];
@@ -289,7 +308,7 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
       const index = anomalies.length;
       anomalies.push({ path: `${meta.path}/a${index}`, index, nameKey: ar.u32(), x, y });
     }
-    return { meta, cells, sites, anomalies };
+    return { meta, cells, res, sites, anomalies };
   });
 }
 
@@ -328,6 +347,7 @@ export function genBody(seed: string, si: number, bi: number, deltas: DeltaStore
     w: BODY_W,
     h: BODY_H,
     cells: core.cells,
+    layers: { water: core.res.water, soil: core.res.soil, timber: core.res.timber, stone: core.res.stone },
     dayLength: core.meta.dayLength,
     sites: core.sites.map((s) => ({
       ...s,
@@ -347,6 +367,8 @@ interface SiteCore {
   dwellings: Base<DwellingSummary>[];
   plots: PlotSummary[];
   style: TownStyle;
+  /** What the planet offers within reach of the site. */
+  around: Surroundings;
   /** The people the district holds at tick 0. The generated `site.population` only sizes the layout. */
   population: number;
 }
@@ -376,7 +398,8 @@ function siteCore(seed: string, si: number, bi: number, ti: number): SiteCore {
     const body = bodyCore(seed, si, bi);
     const site = body.sites[ti];
     if (!site) throw new Error(`No site ${ti} on body ${bi}`);
-    const layout = layoutTown(SITE_N, site.size, site.population, body.meta.kind, rngFor(seed, site.path, 'layout'));
+    const around = surroundings(body.res, BODY_W, BODY_H, site.x, site.y);
+    const layout = layoutTown(SITE_N, site.size, site.population, riverChance(around), rngFor(seed, site.path, 'layout'));
     const dwellings: Base<DwellingSummary>[] = layout.buildings.map((b, index) => {
       const path = `${site.path}/d${index}`;
       return {
@@ -399,7 +422,7 @@ function siteCore(seed: string, si: number, bi: number, ti: number): SiteCore {
     });
     const population = dwellings.reduce((n, d) => n + d.residents, 0);
     const plots = layout.plots.map((p): PlotSummary => ({ x: p.x, y: p.y, w: p.w, h: p.h, dwelling: p.building }));
-    return { body, site, cells: layout.cells, dwellings, plots, style: layout.style, population };
+    return { body, site, cells: layout.cells, dwellings, plots, style: layout.style, around, population };
   });
 }
 
@@ -604,6 +627,11 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
         fields: [
           { label: 'size', value: sc.site.size, vocab: 'size' },
           { label: 'layout', value: sc.style, vocab: 'layout' },
+          { label: 'water', value: sc.around.fresh > 0 && sc.around.salt > 0 ? 'both' : sc.around.fresh > 0 ? 'fresh' : sc.around.salt > 0 ? 'salt' : 'none', vocab: 'water' },
+          { label: 'soil', value: RATING[sc.around.soil]!, vocab: 'rating' },
+          { label: 'timber', value: RATING[sc.around.timber]!, vocab: 'rating' },
+          { label: 'stone', value: RATING[sc.around.stone]!, vocab: 'rating' },
+          { label: 'fish', value: RATING[sc.around.fish]!, vocab: 'rating' },
           withRange(num('population', life ? life.living : sc.population), pop),
           withRange(num('dwellings', standing), dw),
           withRange(num('residents', residents, 'inhabitants'), pop),

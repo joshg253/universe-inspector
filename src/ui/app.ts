@@ -196,7 +196,7 @@ export function startApp(root: HTMLElement): void {
     onOpen: (p) => open(p),
     onLens: () => syncUrl(),
   });
-  if (query.get('lens') === 'age' || query.get('lens') === 'fill') map.lens = query.get('lens') as 'age' | 'fill';
+  if (['age', 'fill', 'water', 'soil', 'timber', 'stone'].includes(query.get('lens') ?? '')) map.lens = query.get('lens') as typeof map.lens;
   map.marks = state.marks;
   map.features = state.features;
 
@@ -1076,7 +1076,7 @@ export function startApp(root: HTMLElement): void {
       for (const k of ['ticks', 'menu', 'dialog', 'tab']) p.delete(k); // one-shot parameters: a reload must not repeat them
       set('skin', state.skin);
       set('pack', state.packId);
-      set('lens', map.lens === 'kind' ? '' : map.lens);
+      set('lens', map.shownLens() === 'kind' ? '' : map.shownLens());
       history.replaceState(null, '', `${location.pathname}?${p}${location.hash}`);
     } catch {
       /* a sandboxed frame may refuse: the address is only a convenience */

@@ -152,6 +152,9 @@ progression through ages, all deterministic from the seed. You watch and inspect
       from tick 0 in the planet draw but is unseen and unused until its age. Stocks are finite (ore, coal, oil) or renew
       and can be overused (soil, timber); the draw-down is the only per-settlement state. First step: soil, timber, fresh
       water, fish, stone, with salt as a coast tag; the deposit kinds wait for Ages.
+      Done so far (`core/resources.ts`): per-cell water (fresh/salt by connected size), soil, timber, stone on the planet; towns
+      need water within 5 cells and prefer farmland; the district river chance comes from the fresh water nearby; the site
+      record lists water, soil, timber, stone, fish. Still open: per-settlement draw-down, ages gating, buildings that use them.
       A town dies when what it lives on is depleted or obsolete (flint, whale oil, a fuel an age moves past); the ruins stay
       on the map, and when a later age makes something there valuable (ore, silicon, oil) it is resettled: boom, bust,
       ghost town, boom. So a ruin keeps its plots as reserve, and a district's history has more than one founding.
@@ -162,6 +165,14 @@ progression through ages, all deterministic from the seed. You watch and inspect
       order and a growth curve. People only live in buildings that exist, so households found new homes and
       population pressure becomes construction. New settlements appear on planet maps with a log line.
       Decisions open: maturity as a hidden roll or a visible record field; whether abandoned buildings become ruins.
+      New settlements come from the candidate sites the planet already holds (placed by water and land, so there is no new
+      randomness at run time): a full or thriving town founds a daughter at a nearby free site that is appealing, with a log line;
+      an age that makes ore or silicon worth having resettles a ruin. A site is empty until its `founded` week.
+      Prospecting: when an age gives the ability to find or use a resource (coal, oil, silicon), a settlement that lacks it
+      does not just get it. It sends a survey over time (a search radius that grows, success a pure function of the week and the
+      deposit), and only a found deposit becomes a reason to settle: a new settlement founded at the deposit, or a ruin there
+      resettled. Deposits are in the planet draw from tick 0 but unknown until surveyed, which is also what the fog (known
+      facts per observer) is for. Needs ages, the deposit layers, and a knowledge set per settlement.
 - [ ] **Abandonment, ruins and replacement:** a building with no one left in it can be abandoned, then fall to ruin, then be
       replaced or cleared. Chance of abandoning rises with each abandoned building nearby, scaled by how long those
       have stood empty (decay spreads like blight), so a dying edge becomes a ruined quarter. A ruin is a state of
@@ -321,6 +332,19 @@ progression through ages, all deterministic from the seed. You watch and inspect
 
 ## Inbox
 
+- [ ] **Paths and roads between settlements:** as time goes on, tracks then roads appear on the planet map between towns that
+      are close or trade, following easy ground (around water and peaks) and upgrading with the age (footpath, cart road, paved).
+      A pure function of (seed, week) like the rest; needs trade/Resources first so a road exists because something travels it.
+
+- [ ] **Parent maps show what is known below them, and later only what you learned:** a planet's tooltips show its settlements'
+      resources and population, a system's bodies their water and settlements, and so on up. Today everything is shown at once (all of
+      it is known); in the game it becomes fog: each fact has a known/unknown state per observer, learned by inspecting and limited
+      by equipment and age. Keep the data a plain per-path fact set so the view can filter it later. Done so far: planet map
+      tooltips for cells, settlements (people, water, soil, timber, stone, fish), bodies on the system map (kind, water share, sites) and systems on the universe map (star, bodies). A tooltip shows one level down only; deeper detail (e.g. a system's settled count) waits until it is inspected.
+
+- [ ] **Anomalies:** the owner is not sure yet what they are for. Decide their role (hazard, find, quest hook, resource
+      oddity) once Resources and Ages exist, so they can tie into those.
+
 
 (new ideas land here)
 
@@ -334,7 +358,7 @@ progression through ages, all deterministic from the seed. You watch and inspect
       a mine town mines plus housing for the workers). The kind registry (`DwellingKind`, pack palette, legend, lens colors) is the one place to
       extend; do it with Resources step 1 so a kind exists because something asks for it.
 
-- [ ] **Map views (more lenses):** By kind, age and occupancy exist (one registry in `ui/map.ts`: `LENSES`, a bin table and a color function). Still to add as their features land: Resources (per cell), Condition, Land use, Water (salt or fresh); the planet map has no lens yet.
+- [ ] **Map views (more lenses):** By kind, age and occupancy exist (one registry in `ui/map.ts`: `LENSES`, a bin table and a color function). Planet map has Terrain, Water, Soil, Timber, Stone (`PLANET_LENSES`). Still to add as their features land: Condition, Land use, and district-level water.
 
 - [ ] **Canon vs provisional (observation persistence):** inspecting something commits it. Today "inspect"
       only stores a boolean flag and the content is regenerated from the seed each time, so a generator
