@@ -144,6 +144,7 @@ export const BASE_WORDS: Record<string, string> = {
   'field.mean_age': 'Average age',
   'field.running_avg': 'Running average',
   'field.water': 'Water nearby',
+  'field.surfaceWater': 'Surface water',
   'field.soil': 'Soil',
   'field.timber': 'Timber',
   'field.stone': 'Stone',

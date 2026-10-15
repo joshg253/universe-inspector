@@ -349,7 +349,7 @@ export class MapCanvas {
       if (b) {
         const t = (k: string) => this.pack.t(k);
         lines.push(this.pack.name('body', b.nameKey, b.kind), t('body.' + b.kind));
-        if (b.kind !== 'gaseous') lines.push(`${t('field.water')}: ${b.waterPct}%`);
+        if (b.kind !== 'gaseous') lines.push(`${t('field.surfaceWater')}: ${b.waterPct}%`);
         lines.push(`${b.siteCount} ${t('field.sites').toLowerCase()}`);
       }
     } else if (path && v?.level === 'body') {
@@ -472,7 +472,7 @@ export class MapCanvas {
 
   /** The resource layer the planet map shows, if a planet lens is chosen. */
   private planetLayer(v: View): { id: 'water' | 'soil' | 'timber' | 'stone'; data: Uint8Array } | null {
-    if (v.level !== 'body') return null;
+    if (v.level !== 'body' || v.kind === 'gaseous') return null;
     const id = this.lens;
     return id === 'water' || id === 'soil' || id === 'timber' || id === 'stone' ? { id, data: v.layers[id] } : null;
   }

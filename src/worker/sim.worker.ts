@@ -70,7 +70,9 @@ function refreshLive(): void {
   if (view?.level === 'body' && Math.floor(sim.tick / TICKS_PER_WEEK) !== bodyWeek && performance.now() - bodyBuilt >= 250) {
     view = buildView(view.path);
     postView();
-    if (recordPath && sitePathOf(recordPath)) ctx.postMessage({ type: 'record', record: recordFor(recordPath) });
+    // The open record needs its district at the current week; do not make that one long fold from here, wait until it is there.
+    const open = recordPath ? sitePathOf(recordPath) : null;
+    if (recordPath && open && sim.peekLiving(open, 0).current) ctx.postMessage({ type: 'record', record: recordFor(recordPath) });
   }
   if (sim.lifeVersion === seenLifeVersion) return;
   seenLifeVersion = sim.lifeVersion;

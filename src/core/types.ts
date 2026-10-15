@@ -50,7 +50,7 @@ export interface SiteSummary {
   x: number;
   y: number;
   size: SizeClass;
-  /** On a planet list: the people its district holds at tick 0. (Only the layout generator sees the notional size.) */
+  /** On a planet list: the people its district holds at tick 0 (the worker replaces it with the live count when the run is later). */
   population: number;
   /** What the planet offers within reach of the site, 0..3 each (none .. plentiful). */
   around: { fresh: number; salt: number; soil: number; timber: number; stone: number; fish: number };

@@ -825,7 +825,9 @@ assert.equal(viewLevel('s1/b2'), 'body');
               }
               return false;
             };
-            if (near(st.x, st.y)) wet++;
+            assert.ok(near(st.x, st.y), `a town has water within reach: ${st.path}`);
+            assert.ok(st.around.fresh > 0 || st.around.salt > 0, 'and its summary says so');
+            wet++;
             const site = genSite(seed, si, b.index, st.index, d);
             const hasRiver = site.cells.includes(4);
             const grp = st.around.fresh >= 2 ? byFresh.wet : st.around.fresh === 0 ? byFresh.dry : null;
