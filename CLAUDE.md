@@ -70,10 +70,10 @@ Roadmap Inbox when the user mentions them.
   -> commit. If too small for a test, say why.
 - Docs ride with the code: README / ROADMAP updates go in the same commit as the change, unasked. Say which
   docs changed.
-- Docs-only changes go straight to `main`, no PR. Never merge PRs or push a merge to `main`; merging is the
+- Docs-only changes go straight to `main`: no review, Issue or PR. Never merge PRs or push a merge to `main`; merging is the
   user's call.
 - Before any push, run `git log --oneline origin/<branch>..<what you push>` and confirm every commit is meant
-  to go out.
+  to go out. Push that sha explicitly, never a local `main` that may be ahead.
 - Never push without the user's explicit say-so, each time. Earlier approval doesn't carry over. If the user
   allows a direct push to `main` once, that covers that push only.
 - During back-and-forth on one change (bug report, fix, retest), don't commit per round. Leave edits in the
