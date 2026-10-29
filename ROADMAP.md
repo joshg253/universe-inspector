@@ -340,17 +340,29 @@ progression through ages, all deterministic from the seed. You watch and inspect
 ## Inbox
 
 - [ ] **Later settlements away from water:** first towns now stand at fresh water (or the sea with fresh water near); towns farther
-      out should arrive later as expansions or neighbors, reached by road to a fresh source. The planet map should draw the fresh feeds (rivers).
+      out should arrive later as expansions or neighbors, reached by road to a fresh source. Rivers are real (`carveRivers` in `core/resources.ts`:
+      sources on high wet ground drain downhill, their cells are fresh water in the layer, so towns settle along them). Rivers follow a priority-flood drainage, so each reaches the sea, a lake or the map edge. Open: they wiggle
+      on flat ground; count by rainfall instead of a flat number per kind.
+- [ ] **Land and water over long time (erosion, drying, volcanoes):** today the planet is a fixed function of the seed. Make it a
+      function of (seed, week) at a coarse step (centuries to millennia, a fold like the others, never per tick). Erosion: rivers
+      cut their beds and shift, deltas build at the mouth, soil washes downstream (soil falls on slopes, rises on flood plains).
+      Drying: a lake or river shrinks when the climate is dry (lower rainfall, a body turning arid) and fills in a wet spell; a
+      lake with no inflow dries first, and a drained bed leaves salt flat or fertile soil. Volcanoes: a peak that erupts now and
+      then (rare, seeded by the week), burying cells in rock, then enriching soil and stone around it over the next centuries;
+      lava damming a river makes a lake. All three must reach the settlements that depend on them (a town whose water dries
+      declines or moves; see Resource-driven land use and Abandonment), and `canFound` and the per-body caches must read the
+      layers at a week. Needs the resource layers to be rebuilt per era, so decide the step size and cache first.
 - [ ] **District view fits the town:** the view frames what is built at the current tick (a minimum of about 24 cells, up to the whole
       grid) instead of a fixed 64x64, so a hamlet is not a few buildings in a field. UI only first.
       Footprint and population are separate: density follows the local industry (present or past: farms spread, mills and works pack workers in) and the settlement's
       age rung, with terrain limiting it (unresearched, a stand-in until sourced; a sprawling town can hold fewer people than a
       compact one), so the view fits the footprint, not the head count. Then, for towns that fill their block, a larger
       grid (say 128) laid out center-out with outer rings as later reserve plots; touches `layoutTown`, `SITE_N`, the plot logic and the town selftests.
-- [ ] **Sea routes and ports:** boat lines across water between settlements, dashed over the sea like roads over land. A route needs a
-      port (a dock, so only coastal towns with one) at each end; a town without one reaches the sea by road to one that has. Today
-      a road link that would cross water is simply left out, so islands and far coasts stay unconnected. Same age gate and
-      pure-function rule as roads; ties into the dock-when-trade-needs-one pick.
+- [~] **Sea routes and ports:** done (`core/sea.ts`): ports are settlements with salt water within 2 cells; a spanning tree of boat lanes over
+      water between ports of one sea (at most 90 cells), and a lane from each port to the richest deep-water spot within 18 cells (a
+      fishing ground); drawn dashed and dotted once the settlement reaches rung 2. Open: require an actual dock (not just the age);
+      the catch feeding the town's `food` instead of the flat per-cell fish count; a town without a port reaching one by road;
+      trade; island and far-coast links beyond 90 cells; fresh-water lanes on lakes and rivers.
 
 - [ ] **Investigate: long days and settlements:** a day longer than the year (down to 0.25 days per year, as Mercury is at 0.5) is
       allowed but only shades the map. Look into whether a slow spin should cost food or growth, or favor a twilight band, and

@@ -4,6 +4,7 @@ import { YEAR } from './time';
 import { rngFor, makeNoise } from './rng';
 import { parsePath } from './path';
 import { layoutTown } from './town';
+import { seaLanes, type FishingGround, type SeaRoute } from './sea';
 import { appeal, buildResources, canFound, foodSupply, riverChance, surroundings, type Resources, type Surroundings } from './resources';
 import { SiteLife, ageAt, capacityOf, districtSeries, livingSeries, meanAgeSeries, visibleCells, type Person, type SiteLifeSeed } from './life';
 import type { DeltaStore } from './deltas';
@@ -232,6 +233,8 @@ interface BodyCore {
   res: Resources;
   sites: Base<SiteSummary>[];
   roads: RoadSummary[];
+  rivers: number[][];
+  sea: { routes: SeaRoute[]; fishing: FishingGround[] };
   anomalies: Base<AnomalySummary>[];
 }
 
@@ -274,6 +277,7 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
     const ox = r.range(0, 1000);
     const oy = r.range(0, 1000);
     const cells = new Uint8Array(W * H);
+    const height = new Float32Array(W * H);
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         if (meta.kind === 'gaseous') {
@@ -281,6 +285,7 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
           cells[y * W + x] = ((v % 7) + 7) % 7;
         } else {
           const h = clamp01((noise.fbm(ox + x / 22, oy + y / 22, 4) - 0.5) * 2 + 0.5);
+          height[y * W + x] = h;
           cells[y * W + x] = classify(meta.kind, h);
         }
       }
@@ -288,7 +293,7 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
 
     const rn = makeNoise(rngFor(seed, meta.path, 'resources').u32());
     const gn = makeNoise(rngFor(seed, meta.path, 'grain').u32());
-    const res = buildResources(cells, W, H, meta.kind, rn.noise, gn.noise);
+    const res = buildResources(cells, W, H, meta.kind, rn.noise, gn.noise, height);
 
     const sites: Base<SiteSummary>[] = [];
     const sr = rngFor(seed, meta.path, 'sites');
@@ -296,7 +301,7 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
       const x = sr.int(4, W - 5);
       const y = sr.int(4, H - 5);
       const c = cells[y * W + x] as number;
-      if (c < 2 || c > 4) continue;
+      if (c < 2 || c > 4 || res.water[y * W + x] !== 0) continue; // not in a lake's bed or a river
       if (sites.some((s) => Math.hypot(s.x - x, s.y - y) < 9)) continue;
       // A first town needs fresh water at its door (or the sea there and a fresh source a short haul off), and prefers ground to
       // farm: a poorer place is still taken now and then. A dry body has no such place, so it stays empty.
@@ -319,7 +324,7 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
       const index = anomalies.length;
       anomalies.push({ path: `${meta.path}/a${index}`, index, nameKey: ar.u32(), x, y });
     }
-    return { meta, cells, res, sites, roads: roadNet(sites, cells, W), anomalies };
+    return { meta, cells, res, sites, roads: roadNet(sites, cells, W), rivers: res.rivers, sea: seaLanes(sites, res.water, cells, W, H), anomalies };
   });
 }
 
@@ -359,7 +364,7 @@ export function roadNet(sites: { x: number; y: number }[], cells: Uint8Array, wi
   const out: RoadSummary[] = [];
   const d2 = (i: number, j: number) => (sites[i]!.x - sites[j]!.x) ** 2 + (sites[i]!.y - sites[j]!.y) ** 2;
   const dry = (i: number, j: number) => {
-    const steps = Math.ceil(Math.sqrt(d2(i, j)) * 2);
+    const steps = Math.max(1, Math.ceil((Math.sqrt(d2(i, j)) * 2) / 20)) * 20; // a multiple of 20, so any coarser check is a subset
     for (let k = 0; k <= steps; k++) {
       const x = Math.round(sites[i]!.x + ((sites[j]!.x - sites[i]!.x) * k) / steps);
       const y = Math.round(sites[i]!.y + ((sites[j]!.y - sites[i]!.y) * k) / steps);
@@ -417,6 +422,9 @@ export function genBody(seed: string, si: number, bi: number, deltas: DeltaStore
       inspected: deltas.isInspected(s.path),
     })),
     roads: core.roads,
+    rivers: core.rivers,
+    seaRoutes: core.sea.routes,
+    fishing: core.sea.fishing,
     anomalies: core.anomalies.map((a) => ({ ...a, inspected: deltas.isInspected(a.path) })),
   };
 }

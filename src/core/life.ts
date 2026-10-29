@@ -53,6 +53,8 @@ export const AGE_TOP = 5;
 export const ROAD_AGE = 2;
 /** The first rung each kind of building can be built in (absent: from the start). Buildings keep their kind, so towns are layered. */
 export const UNLOCK_AGE: Record<string, number> = { mill: 1, quarry: 1, farm: 1, dock: 2, mine: 2, works: 3, warehouse: 3 };
+/** A coastal settlement runs boats once its age allows a dock. */
+export const SEA_AGE = UNLOCK_AGE.dock!;
 /**
  * What a settlement needs standing (built, not ruined) before it leaves a rung for the next, by rung: people, shops, and
  * workplaces (a mill, quarry, farm, dock, mine, works or warehouse; `works` alone for the later rungs), and `fresh` buildings finished during the current

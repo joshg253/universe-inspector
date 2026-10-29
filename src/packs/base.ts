@@ -121,6 +121,8 @@ export const BASE_WORDS: Record<string, string> = {
   'mark.sites': 'Sites',
   'mark.anomalies': 'Anomalies',
   'mark.roads': 'Roads',
+  'mark.rivers': 'Rivers',
+  'mark.sea': 'Sea lanes',
   'mark.dwellings': 'Dwellings',
   'mark.lots': 'Plots',
   'mark.residents': 'Residents',

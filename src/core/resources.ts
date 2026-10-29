@@ -20,6 +20,8 @@ export interface Resources {
   soil: Uint8Array;
   timber: Uint8Array;
   stone: Uint8Array;
+  /** Rivers as flat [x, y, ...] from source to mouth; their cells are in `water` as fresh. */
+  rivers: number[][];
 }
 
 const level = (v: number): number => (v < 0.2 ? 0 : v < 0.45 ? 1 : v < 0.7 ? 2 : 3);
@@ -35,9 +37,10 @@ export function buildResources(
   kind: BodyKind,
   noise: (x: number, y: number) => number,
   grain: (x: number, y: number) => number,
+  height?: Float32Array,
 ): Resources {
   const n = W * H;
-  const out: Resources = { water: new Uint8Array(n), soil: new Uint8Array(n), timber: new Uint8Array(n), stone: new Uint8Array(n) };
+  const out: Resources = { water: new Uint8Array(n), soil: new Uint8Array(n), timber: new Uint8Array(n), stone: new Uint8Array(n), rivers: [] };
   if (kind === 'gaseous') return out;
 
   // Connected water (cells 0 and 1), four-way: big bodies are salt, small ones fresh.
@@ -63,6 +66,8 @@ export function buildResources(
     const v = comp.length >= SALT_MIN ? WATER_SALT : WATER_FRESH;
     for (const j of comp) out.water[j] = v;
   }
+
+  if (height) out.rivers = carveRivers(out, cells, height, W, H, kind, noise);
 
   // How much of each the body can give: soil needs a temperate or arid climate, timber wants wet ground.
   const soilK = kind === 'temperate' ? 1 : kind === 'arid' ? 0.4 : kind === 'frozen' ? 0.25 : 0;
@@ -129,6 +134,133 @@ export function surroundings(res: Resources, W: number, H: number, x: number, y:
     stone: mean(stone),
     fish: Math.min(3, share(fresh + salt * 2)),
   };
+}
+
+/** Rivers a body of each kind gets (a stand-in): wet worlds many, dry and cold ones a few, rock and gas none. */
+const RIVER_COUNT: Record<BodyKind, number> = { temperate: 7, arid: 2, frozen: 3, barren: 0, gaseous: 0 };
+const RIVER_GAP = 14; // sources keep this far apart (Chebyshev)
+const RIVER_STEPS = 220;
+const RIVER_MIN = 8; // cells a river must run to count
+const NB8 = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]] as const;
+
+/**
+ * Where water drains: a priority flood from every water cell and the map's edge, always taking the lowest cell next (ties by
+ * index, so no engine-specific order), so each land cell points at the neighbor it drained to and every chain ends at water or
+ * the edge: dips fill instead of trapping a river. -1 for the outlets themselves.
+ */
+function drainage(res: Resources, height: Float32Array, W: number, H: number): Int32Array {
+  const n = W * H;
+  const down = new Int32Array(n).fill(-1);
+  const seen = new Uint8Array(n);
+  const elev = new Float64Array(n);
+  const heap: number[] = []; // cell indexes, ordered by (elev, index)
+  const less = (p: number, q: number) => elev[p]! < elev[q]! || (elev[p] === elev[q] && p < q);
+  const push = (i: number) => {
+    let k = heap.push(i) - 1;
+    while (k > 0) {
+      const up = (k - 1) >> 1;
+      if (!less(heap[k]!, heap[up]!)) break;
+      [heap[k], heap[up]] = [heap[up]!, heap[k]!];
+      k = up;
+    }
+  };
+  const pop = (): number => {
+    const top = heap[0]!;
+    const last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      for (let k = 0; ; ) {
+        let m = k;
+        for (const c of [2 * k + 1, 2 * k + 2]) if (c < heap.length && less(heap[c]!, heap[m]!)) m = c;
+        if (m === k) break;
+        [heap[k], heap[m]] = [heap[m]!, heap[k]!];
+        k = m;
+      }
+    }
+    return top;
+  };
+  for (let i = 0; i < n; i++) {
+    const x = i % W;
+    const y = (i - x) / W;
+    if (res.water[i] !== WATER_NONE || x === 0 || y === 0 || x === W - 1 || y === H - 1) {
+      seen[i] = 1;
+      elev[i] = height[i]!;
+      push(i);
+    }
+  }
+  while (heap.length) {
+    const cur = pop();
+    const x = cur % W;
+    const y = (cur - x) / W;
+    for (const [dx, dy] of NB8) {
+      const xx = x + dx;
+      const yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+      const k = yy * W + xx;
+      if (seen[k]) continue;
+      seen[k] = 1;
+      down[k] = cur;
+      elev[k] = Math.max(height[k]!, elev[cur]! + 1e-6);
+      push(k);
+    }
+  }
+  return down;
+}
+
+/**
+ * Rivers: sources on the high, wet ground (best height + wetness first, ties by index, kept RIVER_GAP apart) follow the
+ * drainage down until they meet water or the edge. Every cell becomes fresh water in `res.water`, after the lakes and seas are
+ * told apart, so a river that reaches the sea stays fresh. Each is returned source first, as flat `[x, y, ...]` of its land
+ * cells. No draws: a pure function of the height, the noise and the water.
+ */
+function carveRivers(res: Resources, cells: Uint8Array, height: Float32Array, W: number, H: number, kind: BodyKind, wet: (x: number, y: number) => number): number[][] {
+  const out: number[][] = [];
+  const want = RIVER_COUNT[kind];
+  if (want === 0) return out;
+  const cand: { i: number; score: number }[] = [];
+  for (let i = 0; i < W * H; i++) {
+    const c = cells[i] as number;
+    if (c < 4 || res.water[i] !== WATER_NONE) continue;
+    cand.push({ i, score: height[i]! * 0.6 + wet((i % W) / 9, Math.floor(i / W) / 9) * 0.4 });
+  }
+  cand.sort((p, q) => q.score - p.score || p.i - q.i);
+  const down = drainage(res, height, W, H);
+  const reach = (i: number): number => {
+    let len = 0;
+    for (let cur = i; len < RIVER_STEPS; len++) {
+      const next = down[cur]!;
+      if (next < 0 || res.water[next] !== WATER_NONE) break;
+      cur = next;
+    }
+    return len;
+  };
+  const sources: number[] = [];
+  for (const { i } of cand) {
+    if (sources.length >= want) break;
+    const x = i % W;
+    const y = (i - x) / W;
+    if (sources.some((s) => Math.max(Math.abs((s % W) - x), Math.abs(Math.floor(s / W) - y)) < RIVER_GAP)) continue;
+    if (reach(i) < RIVER_MIN) continue; // too close to the sea or the edge to be a river
+    sources.push(i);
+  }
+  const carved: number[] = [];
+  const traced = new Set<number>();
+  for (const src of sources) {
+    const path = [src];
+    traced.add(src);
+    for (let cur = src, step = 0; step < RIVER_STEPS; step++) {
+      const next = down[cur]!;
+      if (next < 0 || res.water[next] !== WATER_NONE) break; // the map's edge, or a lake or the sea
+      path.push(next);
+      if (traced.has(next)) break; // joins a river already traced: it ends at the confluence
+      traced.add(next);
+      cur = next;
+    }
+    carved.push(...path);
+    if (path.length >= 2) out.push(path.flatMap((k) => [k % W, Math.floor(k / W)]));
+  }
+  for (const k of carved) res.water[k] = WATER_FRESH;
+  return out;
 }
 
 /** A founding town stands this close to water, and a coastal one this close to a fresh source (a stand-in for a road to one). */

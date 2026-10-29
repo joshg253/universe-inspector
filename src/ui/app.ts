@@ -1,7 +1,7 @@
 import { lineChart } from './chart';
 import { depth, parentPath, parsePath } from '../core/path';
 import { DAY, YEAR } from '../core/time';
-import { ROAD_AGE, TICKS_PER_WEEK } from '../core/life';
+import { ROAD_AGE, SEA_AGE, TICKS_PER_WEEK } from '../core/life';
 import { BASE_TICKS, LADDER, SPEED_GLYPHS, STEP_GLYPH, spanLabel, speedTps, type FromWorker, type ToWorker } from '../core/protocol';
 import type { Dyn, FeatureId, RecordChild, RecordData, SimEvent, View } from '../core/types';
 import { DEFAULT_PACK_ID, PACKS, packOf } from '../packs';
@@ -96,6 +96,8 @@ function marksFor(v: View): MarkDef[] {
       },
       { key: 'body.night', glyph: '◐', cls: 'g-night', word: 'mark.night' },
       { key: 'body.sites', glyph: '▲', cls: 'g-site', word: 'mark.sites', count: v.sites.length },
+      { key: 'body.rivers', glyph: '≈', cls: 'g-river', word: 'mark.rivers', count: v.rivers.length },
+      { key: 'body.sea', glyph: '∿', cls: 'g-river', word: 'mark.sea', count: v.seaRoutes.filter((r) => (v.sites[r.a]?.age ?? 0) >= SEA_AGE && (v.sites[r.b]?.age ?? 0) >= SEA_AGE).length + v.fishing.filter((f) => (v.sites[f.site]?.age ?? 0) >= SEA_AGE).length },
       { key: 'body.roads', glyph: '═', cls: 'g-road', word: 'mark.roads', count: v.roads.filter((r) => (v.sites[r.a]?.age ?? 0) >= ROAD_AGE && (v.sites[r.b]?.age ?? 0) >= ROAD_AGE).length },
       {
         key: 'body.anomalies',
