@@ -1066,6 +1066,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
           assert.ok(r.length >= 4 && r.length % 2 === 0, 'a river has at least 2 cells');
           for (let k = 0; k < r.length; k += 2) {
             assert.equal(body.layers.water[r[k + 1]! * body.w + r[k]!], 1, 'a river cell is fresh water');
+            const cell = r[k + 1]! * body.w + r[k]!;
+            assert.equal(body.layers.soil[cell]! + body.layers.timber[cell]! + body.layers.stone[cell]!, 0, 'a river bed holds no land resources');
           }
           const a = r.length - 2;
           let ends = r[a]! === 0 || r[a]! === body.w - 1 || r[a + 1]! === 0 || r[a + 1]! === body.h - 1; // the map's edge, or the mouth borders more water

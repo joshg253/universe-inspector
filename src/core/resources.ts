@@ -28,7 +28,8 @@ const level = (v: number): number => (v < 0.2 ? 0 : v < 0.45 ? 1 : v < 0.7 ? 2 :
 
 /**
  * `cells` are terrain classes 0..6 (deep water .. summit), `noise` a smooth 0..1 field and `grain` a second one, both sampled
- * by cell. Gas giants have no surface, so they hold nothing.
+ * by cell. Gas giants have no surface, so they hold nothing. `height` (the terrain height field) is what rivers run over: leave it
+ * out and the body gets none, so pass it for any real body.
  */
 export function buildResources(
   cells: Uint8Array,
@@ -76,7 +77,7 @@ export function buildResources(
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
       const c = cells[i] as number;
-      if (c <= 1) continue;
+      if (c <= 1 || out.water[i] !== WATER_NONE) continue; // water, a river's bed too, holds no soil, timber or stone
       const a = noise(x / 9, y / 9);
       const b = grain(x / 7, y / 7);
       const low = c === 2 ? 0.7 : c === 3 ? 1 : c === 4 ? 0.45 : 0;
