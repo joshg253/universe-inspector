@@ -181,7 +181,7 @@ export class MapCanvas {
       this.off = this.buildOffscreen(view);
       this.hover = null;
       this.fit(false);
-    } else if (view.level === 'site' && !this.touched) this.fit(false);
+    } else if (view.level === 'site' && !this.touched && !this.drag) this.fit(false); // never under a drag in progress
     this.redraw();
   }
 
