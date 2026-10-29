@@ -119,6 +119,8 @@ export class MapCanvas {
   private dpr = 1;
   private hover: string | null = null;
   private hits: HitItem[] = [];
+  /** The user has panned or zoomed since the last fit; until then a district re-frames itself as the town is built. */
+  private touched = false;
   private drag: { x: number; y: number; ox: number; oy: number; moved: boolean } | null = null;
   private raf = 0;
   private legend: HTMLElement;
@@ -179,7 +181,7 @@ export class MapCanvas {
       this.off = this.buildOffscreen(view);
       this.hover = null;
       this.fit(false);
-    }
+    } else if (view.level === 'site' && !this.touched && !this.drag) this.fit(false); // never under a drag in progress
     this.redraw();
   }
 
@@ -266,10 +268,44 @@ export class MapCanvas {
     const v = this.view;
     if (!v) return { x0: 0, y0: 0, x1: 1, y1: 1 };
     if (v.level === 'system' || v.level === 'universe') return { x0: -120, y0: -120, x1: 120, y1: 120 };
+    if (v.level === 'site') return this.townBounds(v);
     return { x0: 0, y0: 0, x1: v.w, y1: v.h };
   }
 
+  /** The box around what is built at this tick (a hamlet is not a few buildings in a field): margin 3, at least 24 cells, inside the grid. */
+  private townBounds(v: SiteView): { x0: number; y0: number; x1: number; y1: number } {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const d of v.dwellings) {
+      if (!d.built) continue;
+      for (const c of footprint(d)) {
+        x0 = Math.min(x0, c.x);
+        y0 = Math.min(y0, c.y);
+        x1 = Math.max(x1, c.x + 1);
+        y1 = Math.max(y1, c.y + 1);
+      }
+    }
+    if (x0 > x1) return { x0: 0, y0: 0, x1: v.w, y1: v.h };
+    const MIN = 24;
+    const span = (lo: number, hi: number, max: number): [number, number] => {
+      lo -= 3;
+      hi += 3;
+      const grow = Math.max(0, MIN - (hi - lo)) / 2;
+      lo -= grow;
+      hi += grow;
+      if (lo < 0) { hi -= lo; lo = 0; }
+      if (hi > max) { lo -= hi - max; hi = max; }
+      return [Math.max(0, lo), Math.min(max, hi)];
+    };
+    const [a, b] = span(x0, x1, v.w);
+    const [c, d] = span(y0, y1, v.h);
+    return { x0: a, y0: c, x1: b, y1: d };
+  }
+
   fit(redraw = true): void {
+    this.touched = false;
     const b = this.bounds();
     const pad = 16;
     const w = b.x1 - b.x0;
@@ -281,6 +317,7 @@ export class MapCanvas {
   }
 
   private zoomAt(factor: number, cx: number, cy: number): void {
+    this.touched = true;
     const next = Math.max(0.5, Math.min(160, this.scale * factor));
     const k = next / this.scale;
     this.ox = cx - (cx - this.ox) * k;
@@ -308,6 +345,7 @@ export class MapCanvas {
       const dy = e.clientY - this.drag.y;
       if (!this.drag.moved && Math.hypot(dx, dy) > 3) this.drag.moved = true;
       if (this.drag.moved) {
+        this.touched = true;
         this.ox = this.drag.ox + dx;
         this.oy = this.drag.oy + dy;
         this.canvas.style.cursor = 'grabbing';

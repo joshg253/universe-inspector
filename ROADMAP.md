@@ -25,7 +25,6 @@ progression through ages, all deterministic from the seed. You watch and inspect
 
 ## Known issues / tuning
 
-- [ ] Settlements can sit right on a shoreline of a world with water; nudge placement inland (changes generation)
 - [ ] Planet-level settlement lists show the tick-0 population, not the live one
 - [ ] Towns hold 5 to 180 people (a district is 64x64 cells, at most 10 per building) while the size labels (city,
       metropolis) come from the notional generated size; bigger towns need a bigger or coarser district
@@ -341,8 +340,8 @@ progression through ages, all deterministic from the seed. You watch and inspect
 
 - [ ] **Later settlements away from water:** first towns now stand at fresh water (or the sea with fresh water near); towns farther
       out should arrive later as expansions or neighbors, reached by road to a fresh source. The planet map should draw the fresh feeds (rivers).
-- [ ] **District view fits the town:** the view frames what is built at the current tick (a minimum of about 24 cells, up to the whole
-      grid) instead of a fixed 64x64, so a hamlet is not a few buildings in a field. UI only first.
+- [~] **District view fits the town:** done (UI only): Fit frames what is built at that tick (margin 3, minimum 24 cells, inside the grid).
+      It re-frames as the town grows until you pan or zoom. Wanted next:
       Footprint and population are separate: density follows the local industry (present or past: farms spread, mills and works pack workers in) and the settlement's
       age rung, with terrain limiting it (unresearched, a stand-in until sourced; a sprawling town can hold fewer people than a
       compact one), so the view fits the footprint, not the head count. Then, for towns that fill their block, a larger
