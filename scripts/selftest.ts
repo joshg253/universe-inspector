@@ -1,11 +1,11 @@
 // Core invariants, run with `npm test`. No browser needed: core/ has no DOM.
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
-import { MAX_SOLAR_DAY, MIN_DAYS_PER_YEAR, orbitalPeriod, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
+import { MAX_SOLAR_DAY, MIN_DAYS_PER_YEAR, orbitalPeriod, roadNet, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
 import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, meanAgeSeries, residenceAt, applyLife, AGE_TOP, UNLOCK_AGE, AGE_NEEDS } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
-import { buildResources, foodSupply, riverChance } from '../src/core/resources';
+import { buildResources, canFound, foodSupply, riverChance, type Resources } from '../src/core/resources';
 import { rngFor } from '../src/core/rng';
 import { Sim, dynFor } from '../src/core/sim';
 import { packOf, PACKS } from '../src/packs';
@@ -861,6 +861,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
             };
             assert.ok(near(st.x, st.y), `a town has water within reach: ${st.path}`);
             assert.ok(st.around.fresh > 0 || st.around.salt > 0, 'and its summary says so');
+            assert.ok(canFound(body.layers as Resources, body.w, body.h, st.x, st.y), `a first town has fresh water at hand: ${st.path}`);
             wet++;
             const site = genSite(seed, si, b.index, st.index, d);
             const hasRiver = site.cells.includes(4);
@@ -1005,6 +1006,70 @@ assert.equal(viewLevel('s1/b2'), 'body');
     }
   }
   assert.ok(climbs > 0 && late > 0 && stalled > 0, `towns climb, workplaces wait then get built, some stall: ${climbs}/${late}/${stalled}`);
+}
+
+// Need-driven building: a town the land cannot feed starts a farm before an earlier-listed workplace; a fed one does not.
+// Roads: a spanning tree over the settlements of a planet, never over water or past the reach limit.
+{
+  const firstStarted = (residents: number): string => {
+    for (let n = 0; n < 200; n++) {
+      const sd: SiteLifeSeed = {
+        path: `s0/b0/t${n}`,
+        dwellings: [
+          ...Array.from({ length: 8 }, (_, i) => ({ path: `d${i}`, kind: 'home', residents, x: 1 + 3 * i, y: 1, w: 2, h: 2 })),
+          { path: 'd8', kind: 'mill', residents: 0, x: 1, y: 6, w: 2, h: 2, built: -1 },
+          { path: 'd9', kind: 'farm', residents: 0, x: 4, y: 6, w: 2, h: 2, built: -1 },
+        ],
+        grid: { n: 30, cells: new Uint8Array(900) },
+      };
+      const life = new SiteLife('need', sd);
+      if (life.ageAt(0) !== 1) continue; // both kinds unlock at rung 1
+      life.advanceTo(52 * 40);
+      const mill = life.builtWeekOf(8);
+      const farm = life.builtWeekOf(9);
+      if (mill < 0 && farm < 0) continue;
+      return farm >= 0 && (mill < 0 || farm < mill) ? 'farm' : 'mill';
+    }
+    throw new Error('no settlement started a workplace');
+  };
+  assert.equal(firstStarted(6), 'farm', 'a hungry town starts its farm first');
+  assert.equal(firstStarted(1), 'mill', 'a fed town takes the workplaces in order');
+  let edges = 0;
+  for (const seed of ['roads-a', 'roads-b', 'roads-c']) {
+    for (let si = 0; si < 12; si++) {
+      const sys = genSystem(seed, si, new DeltaStore());
+      for (let bi = 0; bi < sys.bodies.length; bi++) {
+        const body = genBody(seed, si, bi, new DeltaStore());
+        const seen = new Set<number>();
+        assert.ok(body.roads.length <= Math.max(0, body.sites.length - 1), 'a tree has at most n-1 edges');
+        for (const r of body.roads) {
+          edges++;
+          assert.ok(r.a !== r.b && body.sites[r.a] && body.sites[r.b], 'a road joins two settlements');
+          assert.ok(!seen.has(r.b), 'each settlement is reached once (no cycles)');
+          seen.add(r.b);
+          const a = body.sites[r.a]!;
+          const b = body.sites[r.b]!;
+          assert.ok(Math.hypot(a.x - b.x, a.y - b.y) <= 70, 'within reach');
+          for (let k = 0; k <= 20; k++) {
+            const x = Math.round(a.x + ((b.x - a.x) * k) / 20);
+            const y = Math.round(a.y + ((b.y - a.y) * k) / 20);
+            assert.ok(body.cells[y * body.w + x]! >= 2, 'a road does not cross water');
+          }
+        }
+        assert.deepEqual(genBody(seed, si, bi, new DeltaStore()).roads, body.roads, 'roads are a pure function of the seed');
+      }
+    }
+  }
+  assert.ok(edges > 0, 'some roads exist');
+  // By hand: a lake between A and B must not strand A when A has a dry link to C; B and C join over their own dry link.
+  {
+    const cells = new Uint8Array(96 * 64).fill(3);
+    for (let y = 0; y < 16; y++) for (let x = 14; x <= 16; x++) cells[y * 96 + x] = 0;
+    const sites = [{ x: 10, y: 10 }, { x: 20, y: 10 }, { x: 20, y: 30 }];
+    assert.deepEqual(roadNet(sites, cells, 96), [{ a: 0, b: 2 }, { a: 2, b: 1 }], 'a wet link is skipped, the dry ones join everything');
+    assert.deepEqual(roadNet([{ x: 5, y: 5 }, { x: 90, y: 5 }], new Uint8Array(96 * 64).fill(3), 96), [], 'beyond reach: no road');
+    assert.deepEqual(roadNet([{ x: 5, y: 5 }], cells, 96), [], 'one settlement: no roads');
+  }
 }
 
 console.log(`ok: walked ${walked} settlements across 18 systems; names: ${names.join(' / ')}`);

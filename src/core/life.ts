@@ -49,6 +49,8 @@ const BUILD_PER_PRESSED_WEEK = 0.3 / 52;
 
 /** The age ladder: rungs 0..AGE_TOP, no skipping. Packs name them; core knows only the number. */
 export const AGE_TOP = 5;
+/** The rung both ends must have reached before a road joins two settlements of a planet (see `roadNet` in generate.ts). */
+export const ROAD_AGE = 2;
 /** The first rung each kind of building can be built in (absent: from the start). Buildings keep their kind, so towns are layered. */
 export const UNLOCK_AGE: Record<string, number> = { mill: 1, quarry: 1, farm: 1, dock: 2, mine: 2, works: 3, warehouse: 3 };
 /**
@@ -65,6 +67,9 @@ export const AGE_NEEDS: { pop: number; shop: number; work: number; works: number
 ];
 /** Chance per week that a workplace plot whose age has come is started. */
 const WORKPLACE_PER_WEEK = 0.04;
+/** People the land feeds without a farm (farmsteads, gardens, foraging), and how many each standing farm adds. Past that, farms come first. */
+const FOOD_BASE = 40;
+const FARM_FEEDS = 40;
 
 export type Sex = 'f' | 'm';
 
@@ -756,25 +761,39 @@ export class SiteLife {
       if (this.started[d] && this.builtWeek[d]! > week) underway++;
       else if (this.kinds[d] === 'home' && this.boxedIn[d] && g.length >= this.capacity(d)) pressed++;
     });
+    // Food: a town the land cannot feed wants a farm before anything but a home.
+    let farms = 0;
+    for (let d = 0; d < this.kinds.length; d++) if (this.kinds[d] === 'farm' && this.isBuilt(d, week)) farms++;
+    const hungry = this.living > FOOD_BASE + FARM_FEEDS * farms;
     let startedNow = false;
     if (pressed > underway && roll(base, week, 0, 24) < pressed * BUILD_PER_PRESSED_WEEK * this.feed) {
       let pick = -1;
       for (let d = 0; d < this.builtWeek.length && pick < 0; d++) if (this.builtWeek[d] === -1 && this.kinds[d] === 'home') pick = d;
-      for (let d = 0; d < this.builtWeek.length && pick < 0; d++) {
-        if (this.builtWeek[d] === -1 && (UNLOCK_AGE[this.kinds[d]!] ?? 0) <= age) pick = d;
-      }
+      // Once no home is left in reserve, an ungated kind (a shop) goes next, unless a hungry town has a farm waiting; gated workplaces
+      // follow their own line below.
+      const farmWaits = hungry && this.kinds.some((k, d) => k === 'farm' && this.builtWeek[d] === -1 && !this.started[d] && (UNLOCK_AGE.farm ?? 0) <= age);
+      for (let d = 0; d < this.builtWeek.length && pick < 0 && !farmWaits; d++) if (this.builtWeek[d] === -1 && !(this.kinds[d]! in UNLOCK_AGE)) pick = d;
       if (pick >= 0) this.builtWeek[pick] = week + 20 + Math.floor(roll(base, week, 1, 27) * 32);
       if (pick >= 0) this.started[pick] = true;
       startedNow = pick >= 0;
     }
 
-    // A workplace whose age has come is started now and then, one at a time.
+    // A workplace whose age has come is started now and then, one at a time. A town the land cannot feed starts a farm first;
+    // otherwise the one nearest the center (lowest index) goes.
     if (underway === 0 && !startedNow && roll(base, week, 0, 51) < WORKPLACE_PER_WEEK * this.feed) {
+      let pick = -1;
       for (let d = 0; d < this.builtWeek.length; d++) {
-        if (this.builtWeek[d] !== -1 || this.started[d] || (UNLOCK_AGE[this.kinds[d]!] ?? 0) === 0 || (UNLOCK_AGE[this.kinds[d]!] ?? 0) > age) continue;
-        this.builtWeek[d] = week + 20 + Math.floor(roll(base, week, 2, 27) * 32);
-        this.started[d] = true;
-        break;
+        const unlock = UNLOCK_AGE[this.kinds[d]!] ?? 0;
+        if (this.builtWeek[d] !== -1 || this.started[d] || unlock === 0 || unlock > age) continue;
+        if (pick < 0) pick = d;
+        if (!hungry || this.kinds[d] === 'farm') {
+          if (hungry) pick = d;
+          break;
+        }
+      }
+      if (pick >= 0) {
+        this.builtWeek[pick] = week + 20 + Math.floor(roll(base, week, 2, 27) * 32);
+        this.started[pick] = true;
       }
     }
 
