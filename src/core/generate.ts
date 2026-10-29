@@ -319,7 +319,7 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
       const index = anomalies.length;
       anomalies.push({ path: `${meta.path}/a${index}`, index, nameKey: ar.u32(), x, y });
     }
-    return { meta, cells, res, sites, roads: roadNet(sites, cells), anomalies };
+    return { meta, cells, res, sites, roads: roadNet(sites, cells, W), anomalies };
   });
 }
 
@@ -354,7 +354,7 @@ const ROAD_MAX = 70; // cells: farther apart than this, settlements are not join
  * do not cross water (nearest first, ties by index; distances compared squared, so integer-exact in every engine). A settlement
  * with no such link is left out. No draws: a pure function of the sites and the terrain.
  */
-export function roadNet(sites: { x: number; y: number }[], cells: Uint8Array): RoadSummary[] {
+export function roadNet(sites: { x: number; y: number }[], cells: Uint8Array, width: number): RoadSummary[] {
   const n = sites.length;
   const out: RoadSummary[] = [];
   const d2 = (i: number, j: number) => (sites[i]!.x - sites[j]!.x) ** 2 + (sites[i]!.y - sites[j]!.y) ** 2;
@@ -363,7 +363,7 @@ export function roadNet(sites: { x: number; y: number }[], cells: Uint8Array): R
     for (let k = 0; k <= steps; k++) {
       const x = Math.round(sites[i]!.x + ((sites[j]!.x - sites[i]!.x) * k) / steps);
       const y = Math.round(sites[i]!.y + ((sites[j]!.y - sites[i]!.y) * k) / steps);
-      if ((cells[y * BODY_W + x] as number) < 2) return false;
+      if ((cells[y * width + x] as number) < 2) return false;
     }
     return true;
   };

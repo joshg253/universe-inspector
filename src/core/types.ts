@@ -155,6 +155,7 @@ export interface BodyView {
   layers: { water: Uint8Array; soil: Uint8Array; timber: Uint8Array; stone: Uint8Array };
   dayLength: number;
   sites: SiteSummary[];
+  /** The potential road net, whatever the tick: draw a link only once both its ends have reached `ROAD_AGE` (`SiteSummary.age`). */
   roads: RoadSummary[];
   anomalies: AnomalySummary[];
 }

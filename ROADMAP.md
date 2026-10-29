@@ -109,7 +109,8 @@ progression through ages, all deterministic from the seed. You watch and inspect
 - [~] **Ages and what gets built:** done: a settlement has an age rung (0..5, `SiteLife.ageAt(week)`: start rung from the seed, a rung is left once `AGE_NEEDS` stand: people, shops, workplaces, works, and 6 to 8 buildings finished in the current rung itself)
       that gates when mills, quarries (rung 1), docks (2) and works (3) are built; shown as the Age field, named by the pack. Still open: the full building
       catalog (needs per building, not per count), resource deposits by age. Need-driven picks done for housing (a home first) and
-      food (a farm first once the town outgrows what the land feeds); still wanted: a shop when shops are few per head, a dock when trade needs one.
+      food (a farm first once the town outgrows what the land feeds; the 40 + 40 per farm threshold is flat, so it should scale with
+      the land's `foodSupply`); still wanted: a shop when shops are few per head, a dock when trade needs one.
       Original idea: no calendar year (systems evolve separately). A fixed ordered ladder of ages
       (about 6, no skipping); each settlement has a starting rung and a pace from the seed, `ageAt(site, tick)` is
       pure, core knows only the rung number, packs name ages and may stop short. A building catalog (data: age it

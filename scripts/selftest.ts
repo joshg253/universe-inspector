@@ -1066,9 +1066,9 @@ assert.equal(viewLevel('s1/b2'), 'body');
     const cells = new Uint8Array(96 * 64).fill(3);
     for (let y = 0; y < 16; y++) for (let x = 14; x <= 16; x++) cells[y * 96 + x] = 0;
     const sites = [{ x: 10, y: 10 }, { x: 20, y: 10 }, { x: 20, y: 30 }];
-    assert.deepEqual(roadNet(sites, cells), [{ a: 0, b: 2 }, { a: 2, b: 1 }], 'a wet link is skipped, the dry ones join everything');
-    assert.deepEqual(roadNet([{ x: 5, y: 5 }, { x: 90, y: 5 }], new Uint8Array(96 * 64).fill(3)), [], 'beyond reach: no road');
-    assert.deepEqual(roadNet([{ x: 5, y: 5 }], cells), [], 'one settlement: no roads');
+    assert.deepEqual(roadNet(sites, cells, 96), [{ a: 0, b: 2 }, { a: 2, b: 1 }], 'a wet link is skipped, the dry ones join everything');
+    assert.deepEqual(roadNet([{ x: 5, y: 5 }, { x: 90, y: 5 }], new Uint8Array(96 * 64).fill(3), 96), [], 'beyond reach: no road');
+    assert.deepEqual(roadNet([{ x: 5, y: 5 }], cells, 96), [], 'one settlement: no roads');
   }
 }
 
