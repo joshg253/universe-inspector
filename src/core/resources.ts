@@ -131,6 +131,31 @@ export function surroundings(res: Resources, W: number, H: number, x: number, y:
   };
 }
 
+/** A founding town stands this close to water, and a coastal one this close to a fresh source (a stand-in for a road to one). */
+export const SHORE = 1;
+export const FRESH_HAUL = 8;
+
+/** The kinds of water (`WATER_FRESH`, `WATER_SALT`) within `r` cells (Chebyshev) of (x, y). */
+export function waterWithin(res: Resources, W: number, H: number, x: number, y: number, r: number): { fresh: boolean; salt: boolean } {
+  let fresh = false;
+  let salt = false;
+  for (let yy = Math.max(0, y - r); yy <= Math.min(H - 1, y + r); yy++) {
+    for (let xx = Math.max(0, x - r); xx <= Math.min(W - 1, x + r); xx++) {
+      const w = res.water[yy * W + xx];
+      if (w === WATER_FRESH) fresh = true;
+      else if (w === WATER_SALT) salt = true;
+    }
+  }
+  return { fresh, salt };
+}
+
+/** Whether a first settlement can stand at (x, y): fresh water on its doorstep, or the sea there and a fresh source within `FRESH_HAUL`. */
+export function canFound(res: Resources, W: number, H: number, x: number, y: number): boolean {
+  const here = waterWithin(res, W, H, x, y, SHORE);
+  if (here.fresh) return true;
+  return here.salt && waterWithin(res, W, H, x, y, FRESH_HAUL).fresh;
+}
+
 /** How well the surroundings can feed a town, 0..1: farmland first, then fish and fresh water. */
 export function foodSupply(s: Surroundings): number {
   return Math.min(1, (0.5 * s.soil + 0.3 * s.fish + 0.2 * Math.max(s.fresh, s.salt * 0.6)) / 3);

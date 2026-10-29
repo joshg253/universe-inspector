@@ -108,7 +108,8 @@ progression through ages, all deterministic from the seed. You watch and inspect
       reason on each person's record), after which both are unlinked and either can partner again. Needs a Model-notes entry.
 - [~] **Ages and what gets built:** done: a settlement has an age rung (0..5, `SiteLife.ageAt(week)`: start rung from the seed, a rung is left once `AGE_NEEDS` stand: people, shops, workplaces, works, and 6 to 8 buildings finished in the current rung itself)
       that gates when mills, quarries (rung 1), docks (2) and works (3) are built; shown as the Age field, named by the pack. Still open: the full building
-      catalog (needs per building, not per count), need-driven picks, resource deposits by age.
+      catalog (needs per building, not per count), resource deposits by age. Need-driven picks done for housing (a home first) and
+      food (a farm first once the town outgrows what the land feeds); still wanted: a shop when shops are few per head, a dock when trade needs one.
       Original idea: no calendar year (systems evolve separately). A fixed ordered ladder of ages
       (about 6, no skipping); each settlement has a starting rung and a pace from the seed, `ageAt(site, tick)` is
       pure, core knows only the rung number, packs name ages and may stop short. A building catalog (data: age it
@@ -213,10 +214,10 @@ progression through ages, all deterministic from the seed. You watch and inspect
       their family when it moves. A move is an event with a reason, a destination and a tick, so a person's record shows
       where they went and why. It needs people to belong to the world and not to one district's fold (one fold per
       planet, above), and a person's path stays the dwelling they started in. Cross-town couples need Partners.
-- [ ] **Roads between settlements:** trails, then roads, then highways connect towns on the planet map, by age (the same
-      ladder as footpaths and huts). A link is a pure function of the two sites and the age (terrain-aware: around
-      water and steep ground), drawn on the body map and entering each district at the edge facing its neighbor, where
-      the town's main road meets it. Links are what trade, migration and economic pull travel along (distance as
+- [~] **Roads between settlements:** done: a spanning forest over a planet's settlements (nearest first, never over water or past 70
+      cells), drawn dashed on the planet map once both ends reach rung 2 (`ROAD_AGE`). Still open: trails, then roads, then highways
+      by age; terrain-aware routes around water and steep ground (now a link that would cross water is left out); a link entering each
+      district at the edge facing its neighbor, where the town's main road meets it. Links are what trade, migration and economic pull travel along (distance as
       cost), and what the observer can follow first (a road shows what lies at its end). Needs ages and the new
       settlements/migration items first.
 
@@ -337,13 +338,23 @@ progression through ages, all deterministic from the seed. You watch and inspect
 
 ## Inbox
 
+- [ ] **Later settlements away from water:** first towns now stand at fresh water (or the sea with fresh water near); towns farther
+      out should arrive later as expansions or neighbors, reached by road to a fresh source. The planet map should draw the fresh feeds (rivers).
+- [ ] **District view fits the town:** the view frames what is built at the current tick (a minimum of about 24 cells, up to the whole
+      grid) instead of a fixed 64x64, so a hamlet is not a few buildings in a field. UI only first.
+      Footprint and population are separate: density follows the local industry (present or past: farms spread, mills and works pack workers in) and the settlement's
+      age rung, with terrain limiting it (unresearched, a stand-in until sourced; a sprawling town can hold fewer people than a
+      compact one), so the view fits the footprint, not the head count. Then, for towns that fill their block, a larger
+      grid (say 128) laid out center-out with outer rings as later reserve plots; touches `layoutTown`, `SITE_N`, the plot logic and the town selftests.
+- [ ] **Sea routes and ports:** boat lines across water between settlements, dashed over the sea like roads over land. A route needs a
+      port (a dock, so only coastal towns with one) at each end; a town without one reaches the sea by road to one that has. Today
+      a road link that would cross water is simply left out, so islands and far coasts stay unconnected. Same age gate and
+      pure-function rule as roads; ties into the dock-when-trade-needs-one pick.
+
 - [ ] **Investigate: long days and settlements:** a day longer than the year (down to 0.25 days per year, as Mercury is at 0.5) is
       allowed but only shades the map. Look into whether a slow spin should cost food or growth, or favor a twilight band, and
       whether settlements would migrate with the sun. Unknown for real planets (exoplanet spins are almost entirely unmeasured).
 
-- [ ] **Paths and roads between settlements:** as time goes on, tracks then roads appear on the planet map between towns that
-      are close or trade, following easy ground (around water and peaks) and upgrading with the age (footpath, cart road, paved).
-      A pure function of (seed, week) like the rest; needs trade/Resources first so a road exists because something travels it.
 
 - [ ] **Parent maps show what is known below them, and later only what you learned:** a planet's tooltips show its settlements'
       resources and population, a system's bodies their water and settlements, and so on up. Today everything is shown at once (all of

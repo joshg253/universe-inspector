@@ -4,7 +4,7 @@ import { YEAR } from './time';
 import { rngFor, makeNoise } from './rng';
 import { parsePath } from './path';
 import { layoutTown } from './town';
-import { appeal, buildResources, foodSupply, riverChance, surroundings, type Resources, type Surroundings } from './resources';
+import { appeal, buildResources, canFound, foodSupply, riverChance, surroundings, type Resources, type Surroundings } from './resources';
 import { SiteLife, ageAt, capacityOf, districtSeries, livingSeries, meanAgeSeries, visibleCells, type Person, type SiteLifeSeed } from './life';
 import type { DeltaStore } from './deltas';
 import type {
@@ -19,6 +19,7 @@ import type {
   RecordData,
   RecordField,
   RecordLinks,
+  RoadSummary,
   SiteSummary,
   SiteView,
   SizeClass,
@@ -230,6 +231,7 @@ interface BodyCore {
   cells: Uint8Array;
   res: Resources;
   sites: Base<SiteSummary>[];
+  roads: RoadSummary[];
   anomalies: Base<AnomalySummary>[];
 }
 
@@ -296,9 +298,10 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
       const c = cells[y * W + x] as number;
       if (c < 2 || c > 4) continue;
       if (sites.some((s) => Math.hypot(s.x - x, s.y - y) < 9)) continue;
-      // Towns start by water, and prefer ground to farm: a poorer place is still taken now and then.
+      // A first town needs fresh water at its door (or the sea there and a fresh source a short haul off), and prefers ground to
+      // farm: a poorer place is still taken now and then. A dry body has no such place, so it stays empty.
+      if (!canFound(res, W, H, x, y)) continue;
       const near = surroundings(res, W, H, x, y);
-      if (near.fresh === 0 && near.salt === 0) continue; // nobody settles without water, so a dry body stays empty
       if (!sr.chance(appeal(near))) continue;
       const population =
         Math.round(Math.pow(10, sr.range(1.6, 3.9)));
@@ -316,7 +319,7 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
       const index = anomalies.length;
       anomalies.push({ path: `${meta.path}/a${index}`, index, nameKey: ar.u32(), x, y });
     }
-    return { meta, cells, res, sites, anomalies };
+    return { meta, cells, res, sites, roads: roadNet(sites, cells), anomalies };
   });
 }
 
@@ -344,6 +347,57 @@ function bodyTrail(seed: string, si: number, bi: number): TrailItem {
   return { path: m.path, nameKey: m.nameKey, nameKind: 'body', tag: m.kind };
 }
 
+const ROAD_MAX = 70; // cells: farther apart than this, settlements are not joined
+
+/**
+ * The planet's road net: a minimum spanning forest over the settlements, built only from links of at most ROAD_MAX cells that
+ * do not cross water (nearest first, ties by index; distances compared squared, so integer-exact in every engine). A settlement
+ * with no such link is left out. No draws: a pure function of the sites and the terrain.
+ */
+export function roadNet(sites: { x: number; y: number }[], cells: Uint8Array): RoadSummary[] {
+  const n = sites.length;
+  const out: RoadSummary[] = [];
+  const d2 = (i: number, j: number) => (sites[i]!.x - sites[j]!.x) ** 2 + (sites[i]!.y - sites[j]!.y) ** 2;
+  const dry = (i: number, j: number) => {
+    const steps = Math.ceil(Math.sqrt(d2(i, j)) * 2);
+    for (let k = 0; k <= steps; k++) {
+      const x = Math.round(sites[i]!.x + ((sites[j]!.x - sites[i]!.x) * k) / steps);
+      const y = Math.round(sites[i]!.y + ((sites[j]!.y - sites[i]!.y) * k) / steps);
+      if ((cells[y * BODY_W + x] as number) < 2) return false;
+    }
+    return true;
+  };
+  const ok = new Map<number, boolean>(); // links worth walking: in reach and dry, checked once
+  const linkable = (i: number, j: number) => {
+    const key = i < j ? i * n + j : j * n + i;
+    let v = ok.get(key);
+    if (v === undefined) ok.set(key, (v = d2(i, j) <= ROAD_MAX * ROAD_MAX && dry(i, j)));
+    return v;
+  };
+  const joined = new Array<boolean>(n).fill(false);
+  for (let root = 0; root < n; root++) {
+    if (joined[root]) continue;
+    joined[root] = true; // a new component starts at the lowest unjoined settlement
+    for (;;) {
+      let bi = -1;
+      let bj = -1;
+      let best = Infinity;
+      for (let i = 0; i < n; i++) {
+        if (!joined[i]) continue;
+        for (let j = 0; j < n; j++) {
+          if (joined[j] || !linkable(i, j)) continue;
+          const l = d2(i, j);
+          if (l < best) (best = l, bi = i, bj = j);
+        }
+      }
+      if (bj < 0) break;
+      joined[bj] = true;
+      out.push({ a: bi, b: bj });
+    }
+  }
+  return out;
+}
+
 export function genBody(seed: string, si: number, bi: number, deltas: DeltaStore): BodyView {
   const core = bodyCore(seed, si, bi);
   return {
@@ -362,6 +416,7 @@ export function genBody(seed: string, si: number, bi: number, deltas: DeltaStore
       population: siteCore(seed, si, bi, s.index).population,
       inspected: deltas.isInspected(s.path),
     })),
+    roads: core.roads,
     anomalies: core.anomalies.map((a) => ({ ...a, inspected: deltas.isInspected(a.path) })),
   };
 }

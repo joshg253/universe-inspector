@@ -55,7 +55,15 @@ export interface SiteSummary {
   population: number;
   /** What the planet offers within reach of the site, 0..3 each (none .. plentiful). */
   around: { fresh: number; salt: number; soil: number; timber: number; stone: number; fish: number };
+  /** The age rung its district has reached (set on a planet list once the run has folded it; absent at tick 0). */
+  age?: number;
   inspected: boolean;
+}
+
+/** A road joining two settlements of a planet (indexes into `BodyView.sites`); it is laid once both have reached `ROAD_AGE`. */
+export interface RoadSummary {
+  a: number;
+  b: number;
 }
 
 export interface AnomalySummary {
@@ -147,6 +155,7 @@ export interface BodyView {
   layers: { water: Uint8Array; soil: Uint8Array; timber: Uint8Array; stone: Uint8Array };
   dayLength: number;
   sites: SiteSummary[];
+  roads: RoadSummary[];
   anomalies: AnomalySummary[];
 }
 

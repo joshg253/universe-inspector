@@ -105,11 +105,11 @@ export class Sim {
    * A district's headcount for a list of settlements. It folds the district forward by at most `budget` weeks per call, so
    * opening a planet late in a long run never stalls; `current` is false while the district is still catching up.
    */
-  peekLiving(sitePath: string, budget: number): { living: number; current: boolean } {
+  peekLiving(sitePath: string, budget: number): { living: number; age: number; current: boolean } {
     const life = this.lifeAt(sitePath);
     const now = Math.floor(this.tick / TICKS_PER_WEEK);
     if (life.week < now) life.advanceTo(Math.min(now, life.week + budget));
-    return { living: life.living, current: life.week >= now };
+    return { living: life.living, age: life.ageAt(life.week), current: life.week >= now };
   }
 
   step(): SimEvent[] {

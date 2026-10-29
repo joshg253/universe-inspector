@@ -34,7 +34,7 @@ let catchTps = 0;
 let maxTick = 0; // the furthest this run has gone: the scrubber goes back anywhere up to it
 
 /** Fold the planet's districts in small steps for up to `ms`, set each settlement's headcount, and say whether any is still behind. */
-function foldSites(sites: { path: string; population: number }[], ms: number): boolean {
+function foldSites(sites: { path: string; population: number; age?: number }[], ms: number): boolean {
   const until = performance.now() + ms;
   const was = sites.reduce((n, st) => n + sim.behindOf(st.path), 0);
   let more = true;
@@ -43,6 +43,7 @@ function foldSites(sites: { path: string; population: number }[], ms: number): b
     for (const st of sites) {
       const r = sim.peekLiving(st.path, 260);
       st.population = r.living;
+      st.age = r.age;
       if (!r.current) more = true;
     }
   }

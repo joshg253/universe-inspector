@@ -3,7 +3,7 @@
 // matches what is on screen (hidden layers are not clickable).
 import type { BodyView, DwellingSummary, Dyn, FeatureId, SiteView, SystemView, UniverseView, View } from '../core/types';
 import type { Pack } from '../packs/types';
-import { TICKS_PER_WEEK, TICKS_PER_YEAR } from '../core/life';
+import { ROAD_AGE, TICKS_PER_WEEK, TICKS_PER_YEAR } from '../core/life';
 import { h } from './dom';
 
 export interface MapHooks {
@@ -715,6 +715,24 @@ export class MapCanvas {
       }
       ctx.fillStyle = grad;
       ctx.fillRect(X(0), Y(0), v.w * s, v.h * s);
+    }
+
+    if (this.marks['body.roads'] !== false) {
+      ctx.strokeStyle = pal.mark.site;
+      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 3]);
+      for (const r of v.roads) {
+        const a = v.sites[r.a];
+        const b = v.sites[r.b];
+        if (!a || !b || (a.age ?? 0) < ROAD_AGE || (b.age ?? 0) < ROAD_AGE) continue;
+        ctx.beginPath();
+        ctx.moveTo(X(a.x + 0.5), Y(a.y + 0.5));
+        ctx.lineTo(X(b.x + 0.5), Y(b.y + 0.5));
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
     }
 
     if (this.marks['body.sites'] !== false) {
