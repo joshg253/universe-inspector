@@ -5,6 +5,7 @@ import { MAX_SOLAR_DAY, MIN_DAYS_PER_YEAR, orbitalPeriod, roadNet, solarDay, bod
 import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, meanAgeSeries, residenceAt, applyLife, AGE_TOP, UNLOCK_AGE, AGE_NEEDS } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
+import { portCell } from '../src/core/sea';
 import { buildResources, canFound, foodSupply, riverChance, type Resources } from '../src/core/resources';
 import { rngFor } from '../src/core/rng';
 import { Sim, dynFor } from '../src/core/sim';
@@ -840,7 +841,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
         if (body.kind === 'gaseous') continue;
         if (body.kind === 'barren') assert.equal(body.sites.length, 0, 'a body without water has no towns');
         for (let i = 0; i < body.cells.length; i++) {
-          if (body.cells[i]! > 1) assert.equal(body.layers.water[i], 0, 'land holds no water');
+          if (body.cells[i]! > 1) assert.ok(body.layers.water[i] === 0 || body.layers.water[i] === 1, 'land holds no salt water (a river is fresh)');
           else {
             assert.ok(body.layers.water[i] === 1 || body.layers.water[i] === 2, 'water cells are fresh or salt');
             assert.equal(body.layers.soil[i], 0, 'no soil under water');
@@ -1035,6 +1036,9 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.equal(firstStarted(6), 'farm', 'a hungry town starts its farm first');
   assert.equal(firstStarted(1), 'mill', 'a fed town takes the workplaces in order');
   let edges = 0;
+  let rivers = 0;
+  let lanes = 0;
+  let grounds = 0;
   for (const seed of ['roads-a', 'roads-b', 'roads-c']) {
     for (let si = 0; si < 12; si++) {
       const sys = genSystem(seed, si, new DeltaStore());
@@ -1057,10 +1061,57 @@ assert.equal(viewLevel('s1/b2'), 'body');
           }
         }
         assert.deepEqual(genBody(seed, si, bi, new DeltaStore()).roads, body.roads, 'roads are a pure function of the seed');
+        for (const r of body.rivers) {
+          rivers++;
+          assert.ok(r.length >= 4 && r.length % 2 === 0, 'a river has at least 2 cells');
+          for (let k = 0; k < r.length; k += 2) {
+            assert.equal(body.layers.water[r[k + 1]! * body.w + r[k]!], 1, 'a river cell is fresh water');
+            const cell = r[k + 1]! * body.w + r[k]!;
+            assert.equal(body.layers.soil[cell]! + body.layers.timber[cell]! + body.layers.stone[cell]!, 0, 'a river bed holds no land resources');
+          }
+          const a = r.length - 2;
+          let ends = r[a]! === 0 || r[a]! === body.w - 1 || r[a + 1]! === 0 || r[a + 1]! === body.h - 1; // the map's edge, or the mouth borders more water
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const x = r[a]! + dx;
+            const y = r[a + 1]! + dy;
+            if ((dx || dy) && x >= 0 && y >= 0 && x < body.w && y < body.h && body.cells[y * body.w + x]! <= 1) ends = true;
+          }
+          const other = body.rivers.some((o) => o !== r && o.some((v, k) => k % 2 === 0 && v === r[a] && o[k + 1] === r[a + 1]));
+          assert.ok(ends || other, 'a river ends at water, the map edge or another river');
+        }
+        if (body.kind === 'gaseous' || body.kind === 'barren') assert.equal(body.rivers.length, 0, 'no rivers on rock and gas');
+        assert.deepEqual(genBody(seed, si, bi, new DeltaStore()).rivers, body.rivers, 'rivers are a pure function of the seed');
+        const wet = (path: number[], what: string) => {
+          for (let k = 0; k < path.length; k += 2) {
+            assert.equal(body.layers.water[path[k + 1]! * body.w + path[k]!], 2, what + ' stays on salt water');
+            if (k > 0) assert.ok(Math.max(Math.abs(path[k]! - path[k - 2]!), Math.abs(path[k + 1]! - path[k - 1]!)) === 1, what + ' moves one cell at a time');
+          }
+        };
+        const linked = new Set<number>();
+        for (const r of body.seaRoutes) {
+          lanes++;
+          wet(r.path, 'a sea route');
+          assert.ok(!linked.has(r.b), 'each port is reached once by sea (no cycles)');
+          const end = (site: number, k: number) => assert.equal(r.path[k]! + r.path[k + 1]! * body.w, portCell(body.layers.water, body.w, body.h, body.sites[site]!.x, body.sites[site]!.y), 'a route runs from port to port');
+          end(r.a, 0);
+          end(r.b, r.path.length - 2);
+          linked.add(r.b);
+        }
+        for (const f of body.fishing) {
+          grounds++;
+          wet(f.path, 'a fishing lane');
+          assert.equal(body.cells[f.y * body.w + f.x], 0, 'a fishing ground is deep water');
+          assert.ok(f.rich >= 8, 'a fishing ground is rich');
+        }
+        assert.deepEqual(genBody(seed, si, bi, new DeltaStore()).seaRoutes, body.seaRoutes, 'sea routes are a pure function of the seed');
+        assert.deepEqual(genBody(seed, si, bi, new DeltaStore()).fishing, body.fishing, 'fishing grounds are a pure function of the seed');
       }
     }
   }
   assert.ok(edges > 0, 'some roads exist');
+  assert.ok(rivers > 0, 'some rivers exist');
+  assert.ok(lanes > 0, 'some sea routes exist');
+  assert.ok(grounds > 0, 'some fishing grounds exist');
   // By hand: a lake between A and B must not strand A when A has a dry link to C; B and C join over their own dry link.
   {
     const cells = new Uint8Array(96 * 64).fill(3);

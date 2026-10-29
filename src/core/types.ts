@@ -1,6 +1,8 @@
 // Generic simulation types. Nothing in core/ uses theme words: it emits ids
 // like 'temperate' or 'home', and a content pack decides what they are called.
 
+import type { FishingGround, SeaRoute } from './sea';
+
 export type BodyKind = 'barren' | 'temperate' | 'arid' | 'frozen' | 'gaseous';
 export type StarClass = 'dim' | 'mid' | 'bright';
 export type SizeClass = 'small' | 'medium' | 'large';
@@ -157,6 +159,11 @@ export interface BodyView {
   sites: SiteSummary[];
   /** The potential road net, whatever the tick: draw a link only once both its ends have reached `ROAD_AGE` (`SiteSummary.age`). */
   roads: RoadSummary[];
+  /** Feeds of the fresh water, each flat `[x, y, ...]` from source to mouth. Display only, whatever the tick. */
+  rivers: number[][];
+  /** Boat lanes between ports and out to fishing grounds, whatever the tick: draw one once its settlements have reached `SEA_AGE`. */
+  seaRoutes: SeaRoute[];
+  fishing: FishingGround[];
   anomalies: AnomalySummary[];
 }
 

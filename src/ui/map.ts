@@ -3,7 +3,7 @@
 // matches what is on screen (hidden layers are not clickable).
 import type { BodyView, DwellingSummary, Dyn, FeatureId, SiteView, SystemView, UniverseView, View } from '../core/types';
 import type { Pack } from '../packs/types';
-import { ROAD_AGE, TICKS_PER_WEEK, TICKS_PER_YEAR } from '../core/life';
+import { ROAD_AGE, SEA_AGE, TICKS_PER_WEEK, TICKS_PER_YEAR } from '../core/life';
 import { h } from './dom';
 
 export interface MapHooks {
@@ -753,6 +753,56 @@ export class MapCanvas {
       }
       ctx.fillStyle = grad;
       ctx.fillRect(X(0), Y(0), v.w * s, v.h * s);
+    }
+
+    if (this.marks['body.rivers'] !== false) {
+      ctx.strokeStyle = pal.water;
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = Math.max(1, s * 0.5);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      for (const r of v.rivers) {
+        ctx.beginPath();
+        for (let k = 0; k < r.length; k += 2) {
+          const px = X(r[k]! + 0.5);
+          const py = Y(r[k + 1]! + 0.5);
+          if (k === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    if (this.marks['body.sea'] !== false) {
+      const line = (path: number[]) => {
+        ctx.beginPath();
+        for (let k = 0; k < path.length; k += 2) {
+          const px = X(path[k]! + 0.5);
+          const py = Y(path[k + 1]! + 0.5);
+          if (k === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+      };
+      ctx.strokeStyle = pal.mark.site;
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([2, 4]);
+      for (const r of v.seaRoutes) {
+        if ((v.sites[r.a]?.age ?? 0) >= SEA_AGE && (v.sites[r.b]?.age ?? 0) >= SEA_AGE) line(r.path);
+      }
+      ctx.setLineDash([1, 3]);
+      for (const f of v.fishing) {
+        if ((v.sites[f.site]?.age ?? 0) < SEA_AGE) continue;
+        line(f.path);
+        ctx.fillStyle = pal.mark.site;
+        ctx.beginPath();
+        ctx.arc(X(f.x + 0.5), Y(f.y + 0.5), 3, 0, TAU);
+        ctx.fill();
+      }
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
     }
 
     if (this.marks['body.roads'] !== false) {
