@@ -486,6 +486,11 @@ export class SiteLife {
     return this.kinds.length;
   }
 
+  /** Whether a building or its yard holds the cell (x, y), in the grid's current coordinates (see `offset`). */
+  occupiedAt(x: number, y: number): boolean {
+    return this.occ[y * this.grid.n + x] !== 0;
+  }
+
   /** Side of the grid now (it only grows, up to MAX_GRID). */
   get gridSize(): number {
     return this.grid.n;

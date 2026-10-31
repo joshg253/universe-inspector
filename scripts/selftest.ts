@@ -1133,6 +1133,13 @@ assert.equal(viewLevel('s1/b2'), 'body');
     const net = seaLanes([{ x: 4, y: 7 }, { x: 18, y: 8 }, { x: 31, y: 5 }, { x: 20, y: 17 }], water, deep, W, H);
     assert.deepEqual(net.routes.map((r) => [r.a, r.b]), [[0, 1], [1, 2]], 'lake and river towns are joined over water; the dry one is left out');
     assert.equal(net.fishing.length, 0, 'nothing is fished in fresh water');
+    for (const r of net.routes) {
+      assert.ok(r.path.length >= 4, 'a lane has a path');
+      for (let k = 0; k < r.path.length; k += 2) {
+        assert.ok(water[r.path[k + 1]! * W + r.path[k]!], 'a lane runs over water');
+        if (k >= 2) assert.ok(Math.max(Math.abs(r.path[k]! - r.path[k - 2]!), Math.abs(r.path[k + 1]! - r.path[k - 1]!)) === 1, 'a lane moves one cell at a time');
+      }
+    }
   }
   // By hand: a town a few cells back from the shore still puts out boats; one far inland does not.
   {
@@ -1175,6 +1182,10 @@ assert.equal(viewLevel('s1/b2'), 'body');
     const wall = new Uint8Array(96 * 64).fill(3);
     for (let y = 0; y <= 40; y++) for (let x = 14; x <= 16; x++) wall[y * 96 + x] = 0;
     assert.deepEqual(roadNet([{ x: 10, y: 10 }, { x: 20, y: 10 }], wall, 96), [], 'a detour over twice the straight distance: no road');
+    // A diagonal wall of water: a step between the two land cells at its corner squeezes through no gap, so there is no road.
+    const diag = new Uint8Array(96 * 64).fill(3);
+    for (let y = 0; y <= 60; y++) diag[y * 96 + (60 - y)] = 0;
+    assert.deepEqual(roadNet([{ x: 20, y: 20 }, { x: 50, y: 50 }], diag, 96), [], 'a road does not slip diagonally between two water cells');
     // Bridges: a road crosses fresh water up to 3 cells wide, never salt water or anything wider.
     const strip = (w: number, kind: number) => {
       const cells = new Uint8Array(96 * 64).fill(3);
@@ -1264,6 +1275,11 @@ assert.equal(viewLevel('s1/b2'), 'body');
     }
     if (l.living === 0) {
       dead++;
+      for (let i = 0; i < 8; i++) {
+        if (!l.isCleared(i)) continue;
+        const d = sd.dwellings[i]!;
+        for (let yy = d.y; yy < d.y + d.h; yy++) for (let xx = d.x; xx < d.x + d.w; xx++) assert.ok(!l.occupiedAt(xx, yy), `decay${k}: cleared ground is free again`);
+      }
       assert.ok(derelict > 0 && ruin >= derelict && cleared > ruin, `decay${k}: derelict ${derelict} -> ruin ${ruin} -> cleared ${cleared}`);
       assert.ok(l.wear.some((v) => v !== 0), `decay${k}: an empty town's streets wear`);
       // Freed ground: a cleared building no longer holds cells.

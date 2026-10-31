@@ -387,6 +387,7 @@ export function roadNet(sites: { x: number; y: number }[], cells: Uint8Array, wi
     const R = BRIDGE_MAX + 1;
     const start = sites[i]!.y * w + sites[i]!.x;
     const goal = sites[j]!.y * w + sites[j]!.x;
+    const shut = (k: number) => (cells[k] as number) < 2 && (!water || water[k] === WATER_SALT); // water a road never crosses
     const seen = new Set<number>([start * R]);
     let frontier = [start * R];
     for (let step = 0; step < limit && frontier.length > 0; step++) {
@@ -404,6 +405,7 @@ export function roadNet(sites: { x: number; y: number }[], cells: Uint8Array, wi
             const nk = ny * w + nx;
             const wet = (cells[nk] as number) < 2;
             if (wet && (!water || water[nk] === WATER_SALT || run >= BRIDGE_MAX)) continue; // salt water is for boats; a bridge has a length
+            if (dx !== 0 && dy !== 0 && shut(y * w + nx) && shut(ny * w + x)) continue; // no slipping diagonally between two shut cells
             const ns = nk * R + (wet ? run + 1 : 0);
             if (seen.has(ns)) continue;
             if (nk === goal && !wet) return true;

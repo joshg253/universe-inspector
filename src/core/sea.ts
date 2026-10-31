@@ -16,7 +16,7 @@ export interface SeaRoute {
   /** indexes into the planet's sites */
   a: number;
   b: number;
-  /** flat [x, y, ...] over salt water, from a's port to b's */
+  /** flat [x, y, ...] over water (salt or fresh), from a's port to b's */
   path: number[];
 }
 

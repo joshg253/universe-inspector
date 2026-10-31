@@ -138,7 +138,8 @@ progression through ages, all deterministic from the seed. You watch and inspect
       stand-in, not yet tied to a depleted resource or a crop failure): a kind chooser by need (shops and works, with the age catalog: a full
       town asks for a shop, not only a home). Run-time growth: `SiteLife` can append homes on open ground and widen the grid by
       6 cells a side up to `MAX_GRID` (160), existing indices and `life.offset` kept; it is off (`growable`) until the view and map
-      read `gridSize`/`offset` and `extendTown` lays streets and footpaths in new rings (kinds from the land: farms, mills, quarries).
+      read `gridSize`/`offset` (`applyLife` still maps only the layout's dwellings and size) and `extendTown` lays streets and footpaths in new rings
+      (kinds from the land: farms, mills, quarries); `openSpot` ignores plot parcels, so before switching it on appended homes must keep to unclaimed ground.
 - [ ] **Resource-driven land use:** what a settlement farms or works comes from the planet map cells around it (soil and
       water for grain and animals, forest for timber, ore for mines), not a fixed share. Most towns start with farms of
       their own; one becomes a farm town where the farms take over the district, another drops most of its farms because
