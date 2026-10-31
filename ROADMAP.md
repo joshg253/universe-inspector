@@ -136,8 +136,9 @@ progression through ages, all deterministic from the seed. You watch and inspect
       every plot, or wither: about a quarter go into decline (fortune halves every 25 to 85 years from year 100 to 700:
       no arrivals, fewer births), empty homes fall into ruin, and plague years kill a third or more. Left (decline is a
       stand-in, not yet tied to a depleted resource or a crop failure): a kind chooser by need (shops and works, with the age catalog: a full
-      town asks for a shop, not only a home); growth that continues once every reserve is used (a dwelling list that grows,
-      so subdivision happens at run time rather than being planned at layout).
+      town asks for a shop, not only a home). Run-time growth: `SiteLife` can append homes on open ground and widen the grid by
+      6 cells a side up to `MAX_GRID` (160), existing indices and `life.offset` kept; it is off (`growable`) until the view and map
+      read `gridSize`/`offset` and `extendTown` lays streets and footpaths in new rings (kinds from the land: farms, mills, quarries).
 - [ ] **Resource-driven land use:** what a settlement farms or works comes from the planet map cells around it (soil and
       water for grain and animals, forest for timber, ore for mines), not a fixed share. Most towns start with farms of
       their own; one becomes a farm town where the farms take over the district, another drops most of its farms because
@@ -179,7 +180,11 @@ progression through ages, all deterministic from the seed. You watch and inspect
       deposit), and only a found deposit becomes a reason to settle: a new settlement founded at the deposit, or a ruin there
       resettled. Deposits are in the planet draw from tick 0 but unknown until surveyed, which is also what the fog (known
       facts per observer) is for. Needs ages, the deposit layers, and a knowledge set per settlement.
-- [ ] **Abandonment, ruins and replacement:** a building with no one left in it can be abandoned, then fall to ruin, then be
+- [~] **Abandonment, ruins and replacement:** done: a home empty 10 years is derelict (darker on the map), a ruin is drawn as a broken
+      outline and cleared 20 to 50 years on (ground freed, index kept), and street cells (road, plaza, track) with no occupied building within
+      4 cells wear road -> track -> green after 10 to 40 idle years (plaza last) and are mended when people return; `SiteLife.wear`,
+      `wornCells`. Open (below): condition 0 to 100, blight spreading between neighbors, replacement, a lived-in outlying building's long track wears in its middle (only 4 cells around a building are kept up),
+      footpaths of unbuilt buildings are not drawn and do not wear until they stand, roads between settlements decay too. A building with no one left in it can be abandoned, then fall to ruin, then be
       replaced or cleared. Chance of abandoning rises with each abandoned building nearby, scaled by how long those
       have stood empty (decay spreads like blight), so a dying edge becomes a ruined quarter. A ruin is a state of
       the building (kept in the fold: pure function of the week, processed in index order), not a deletion, so paths and
@@ -214,9 +219,9 @@ progression through ages, all deterministic from the seed. You watch and inspect
       their family when it moves. A move is an event with a reason, a destination and a tick, so a person's record shows
       where they went and why. It needs people to belong to the world and not to one district's fold (one fold per
       planet, above), and a person's path stays the dwelling they started in. Cross-town couples need Partners.
-- [~] **Roads between settlements:** done: a spanning forest over a planet's settlements (nearest first, never over water or past 70
-      cells), drawn dashed on the planet map once both ends reach rung 2 (`ROAD_AGE`). Still open: trails, then roads, then highways
-      by age; terrain-aware routes around water and steep ground (now a link that would cross water is left out); a link entering each
+- [~] **Roads between settlements:** done: a spanning forest over a planet's settlements (nearest first, within 90 cells, joined when a land route exists at most twice the straight distance, going around water or over fresh water up to 3 cells wide (a bridge, no age gate yet); still drawn straight,
+      as the connection; 110 of 378 settlements were left out before, 22 now), drawn dashed on the planet map once both ends reach rung 2 (`ROAD_AGE`). Still open: trails, then roads, then highways
+      by age; age-gated bridges, steep ground, drawing the real route; a link entering each
       district at the edge facing its neighbor, where the town's main road meets it. Links are what trade, migration and economic pull travel along (distance as
       cost), and what the observer can follow first (a road shows what lies at its end). Needs ages and the new
       settlements/migration items first.
@@ -288,6 +293,9 @@ progression through ages, all deterministic from the seed. You watch and inspect
       a directed pass. Cost is area x detail / speed, so upgrades divide the time and endgame is the same job
       finishing in one tick: click a planet, then a person. The wandering scout is a pure function of (seed, unit,
       tick), so only player orders add state (an order log, position derived from it) and waiting is free.
+      In the game the player does not steer time (no speed buttons or rewinds): they wait for jobs and the world runs on;
+      the speed controls are sandbox-only. Goals can be as plain as finding a given resource (a rich deposit, a fishing
+      ground) on a planet; the deeper the inspection, the more of the fog gives way.
 - [ ] **Case objectives (what the better view is for):** the upgrades are the means; the goal is a case to solve: find a
       specific person, a household, a place, or the cause of something, before the clock runs out (the person dies, the
       trail goes cold, the settlement changes). The deadline comes from the life model, so it is real and deterministic:
@@ -338,6 +346,8 @@ progression through ages, all deterministic from the seed. You watch and inspect
 
 ## Inbox
 
+- [ ] **Dock-houses and piers:** let growth rings build over shallow water (piers, stilt houses) at a coast or lake, not land only.
+
 - [ ] **Later settlements away from water:** first towns now stand at fresh water (or the sea with fresh water near); towns farther
       out should arrive later as expansions or neighbors, reached by road to a fresh source. Rivers are real (`carveRivers` in `core/resources.ts`:
       sources on high wet ground drain downhill, their cells are fresh water in the layer, so towns settle along them). Rivers follow a priority-flood drainage, so each reaches the sea, a lake or the map edge. Open: they wiggle
@@ -357,11 +367,15 @@ progression through ages, all deterministic from the seed. You watch and inspect
       age rung, with terrain limiting it (unresearched, a stand-in until sourced; a sprawling town can hold fewer people than a
       compact one), so the view fits the footprint, not the head count. Then, for towns that fill their block, a larger
       grid (say 128) laid out center-out with outer rings as later reserve plots; touches `layoutTown`, `SITE_N`, the plot logic and the town selftests.
-- [~] **Sea routes and ports:** done (`core/sea.ts`): ports are settlements with salt water within 2 cells; a spanning tree of boat lanes over
-      water between ports of one sea (at most 90 cells), and a lane from each port to the richest deep-water spot within 18 cells (a
-      fishing ground); drawn dashed and dotted once the settlement reaches rung 2. Open: require an actual dock (not just the age);
+- [~] **Sea routes and ports:** done (`core/sea.ts`): ports are settlements with any water (sea, lake, river) within 5 cells; a spanning tree of boat lanes over
+      water between ports of one connected body of water (at most 90 cells), and a lane from each port to the richest deep salt-water spot within 18 cells (a
+      fishing ground; none on fresh water); drawn dashed and dotted once the settlement reaches rung 2. Open: require an actual dock (not just the age);
       the catch feeding the town's `food` instead of the flat per-cell fish count; a town without a port reaching one by road;
-      trade; island and far-coast links beyond 90 cells; fresh-water lanes on lakes and rivers.
+      trade; island and far-coast links beyond 90 cells; 4 settlements of a 3-seed sample are still unlinked (110 at first; 15 before the port reach went to 5 cells and the road reach to 90): all
+      are split from the nearest town by salt straits 9 to 32 cells wide. Ferries would link them. A town with salt water in reach puts out to sea even if a pond is nearer (one port per town), so it may lose a lake lane.
+      Rivers are drawn as land, so roads cross them freely; only lakes count against the 3-cell bridge limit. `roadNet` runs one search per pair
+      whose straight line crosses water (cost not measured); one search per source covering all targets would cut that. In a growable
+      town at the grid cap with no room, `openSpot` scans the whole grid every week (off in the app).
 
 - [ ] **Investigate: long days and settlements:** a day longer than the year (down to 0.25 days per year, as Mercury is at 0.5) is
       allowed but only shades the map. Look into whether a slow spin should cost food or growth, or favor a twilight band, and
@@ -375,8 +389,19 @@ progression through ages, all deterministic from the seed. You watch and inspect
       tooltips for cells, settlements (people, water, soil, timber, stone, fish), bodies on the system map (kind, water share, sites) and systems on the universe map (star, bodies). A tooltip shows one level down only; deeper detail (e.g. a system's settled count) waits until it is inspected.
 
 - [ ] **Anomalies:** the owner is not sure yet what they are for. Decide their role (hazard, find, quest hook, resource
-      oddity) once Resources and Ages exist, so they can tie into those.
+      oddity) once Resources and Ages exist, so they can tie into those. Leading idea: finds (rare deposits, ruins) that a goal
+      can point at; hazards and case clues later. Core emits a kind id; each content pack names it (fantasy vs sci-fi), never the skin.
 
+
+- [ ] **Map palette per skin (optional):** the map canvas ignores skins today (fixed colors). A skin supplies a map palette next to its CSS
+      variables, limited like the era's hardware (Amiga, Classic Mac 1-bit dither, Win 3.1 16 colors, BeOS); start with the four skins
+      matched to references. Setting "map follows skin", off by default, since map colors carry information (water, soil). The skin also
+      sets resolution and color depth: render the map to a small offscreen at the era's pixel grid, then scale up with smoothing off
+      (hard pixels), with dither where the palette is tiny. Check legibility per skin in screenshots. Also fixes water that is hard to
+      see on arid planets.
+      DOS text-mode skin (Turbo Vision / DOS Shell look): 16-color CGA palette, box-drawing borders, CP437-style font, and the map as an
+      80x25 glyph grid (water, timber, buildings, roads as characters). Bigger than the CSS-only skins (needs a monospace grid layout and
+      a glyph renderer for the map), so do it after the pixel skins.
 
 (new ideas land here)
 

@@ -1,9 +1,9 @@
-// Sea lanes: boat routes between coastal settlements and out to fishing grounds. Pure functions of the sites and the water layer
+// Sea lanes: boat routes over any connected water (sea, lake, river) between settlements, and out to fishing grounds at sea. Pure functions of the sites and the water layer
 // (no draws, fixed neighbor order, ties by index), so a lane is the same whenever it is looked at.
 import { WATER_SALT } from './resources';
 
 /** Cells away from a settlement its boats can put out from. */
-const PORT_REACH = 2;
+const PORT_REACH = 5;
 /** A route longer than this many cells is not run. */
 export const SEA_MAX = 90;
 /** How far from its port a boat fishes, in cells of water. */
@@ -34,7 +34,7 @@ interface Search {
   from: Int32Array;
 }
 
-/** Breadth-first over salt water (8-way, fixed order) from `start`, no farther than `max` steps. */
+/** Breadth-first over water (8-way, fixed order) from `start`, no farther than `max` steps. */
 function sail(salt: Uint8Array, W: number, H: number, start: number, max: number): Search {
   const dist = new Int32Array(W * H).fill(-1);
   const from = new Int32Array(W * H).fill(-1);
@@ -65,8 +65,13 @@ function trace(s: Search, to: number, W: number): number[] {
   return cells.reverse().flatMap((k) => [k % W, Math.floor(k / W)]);
 }
 
-/** The salt-water cell a settlement's boats leave from: the nearest within PORT_REACH (ring by ring, scan order), or -1 inland. */
+/** The water cell a settlement's boats leave from: the nearest salt water within PORT_REACH, else the nearest fresh (ring by ring, scan order), or -1 away from water. Salt wins so a pond beside a coastal town does not cost it its sea lanes. */
 export function portCell(water: Uint8Array, W: number, H: number, x: number, y: number): number {
+  const salt = nearestWater(water, W, H, x, y, (v) => v === WATER_SALT);
+  return salt >= 0 ? salt : nearestWater(water, W, H, x, y, (v) => v > 0);
+}
+
+function nearestWater(water: Uint8Array, W: number, H: number, x: number, y: number, want: (v: number) => boolean): number {
   for (let r = 1; r <= PORT_REACH; r++) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
@@ -74,7 +79,7 @@ export function portCell(water: Uint8Array, W: number, H: number, x: number, y: 
         const xx = x + dx;
         const yy = y + dy;
         if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
-        if (water[yy * W + xx] === WATER_SALT) return yy * W + xx;
+        if (want(water[yy * W + xx]!)) return yy * W + xx;
       }
     }
   }
@@ -82,9 +87,10 @@ export function portCell(water: Uint8Array, W: number, H: number, x: number, y: 
 }
 
 /**
- * The planet's sea lanes. Ports are settlements with salt water within PORT_REACH. In each connected stretch of sea the ports are
- * joined by a minimum spanning tree over the length of the shortest water path (ties by index), and each port also gets a lane out to
- * the richest deep-water spot within FISH_REACH, if one exists. Whether a port has a dock yet is the caller's age gate.
+ * The planet's boat lanes. Ports are settlements with water (salt or fresh) within PORT_REACH. In each connected body of water (a sea, or a
+ * lake with the rivers that run into it) the ports are joined by a minimum spanning tree over the length of the shortest water path
+ * (ties by index), and each port also gets a lane out to the richest deep salt-water spot within FISH_REACH, if one exists. Whether a
+ * port has a dock yet is the caller's age gate.
  */
 export function seaLanes(
   sites: { x: number; y: number }[],
@@ -93,15 +99,19 @@ export function seaLanes(
   W: number,
   H: number,
 ): { routes: SeaRoute[]; fishing: FishingGround[] } {
+  const wet = new Uint8Array(W * H);
   const salt = new Uint8Array(W * H);
-  for (let i = 0; i < salt.length; i++) if (water[i] === WATER_SALT) salt[i] = 1;
+  for (let i = 0; i < wet.length; i++) {
+    if (water[i]) wet[i] = 1;
+    if (water[i] === WATER_SALT) salt[i] = 1;
+  }
   const port = sites.map((s) => portCell(water, W, H, s.x, s.y));
   const routes: SeaRoute[] = [];
   const fishing: FishingGround[] = [];
   const searches = new Map<number, Search>();
   const at = (i: number) => {
     let s = searches.get(i);
-    if (!s) searches.set(i, (s = sail(salt, W, H, port[i]!, SEA_MAX)));
+    if (!s) searches.set(i, (s = sail(wet, W, H, port[i]!, SEA_MAX)));
     return s;
   };
   const ports = port.map((p, i) => (p >= 0 ? i : -1)).filter((i) => i >= 0);
@@ -134,7 +144,7 @@ export function seaLanes(
     let rich = 0;
     for (let k = 0; k < s.dist.length; k++) {
       const d = s.dist[k]!;
-      if (d < 3 || d > FISH_REACH || cells[k] !== 0) continue;
+      if (d < 3 || d > FISH_REACH || cells[k] !== 0 || !salt[k]) continue;
       const x = k % W;
       const y = (k - x) / W;
       let deep = 0;

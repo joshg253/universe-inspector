@@ -5,7 +5,7 @@ import { rngFor, makeNoise } from './rng';
 import { parsePath } from './path';
 import { layoutTown } from './town';
 import { seaLanes, type FishingGround, type SeaRoute } from './sea';
-import { appeal, buildResources, canFound, foodSupply, riverChance, surroundings, type Resources, type Surroundings } from './resources';
+import { appeal, buildResources, canFound, foodSupply, riverChance, surroundings, WATER_SALT, type Resources, type Surroundings } from './resources';
 import { SiteLife, ageAt, capacityOf, districtSeries, livingSeries, meanAgeSeries, visibleCells, type Person, type SiteLifeSeed } from './life';
 import type { DeltaStore } from './deltas';
 import type {
@@ -324,7 +324,7 @@ function bodyCore(seed: string, si: number, bi: number): BodyCore {
       const index = anomalies.length;
       anomalies.push({ path: `${meta.path}/a${index}`, index, nameKey: ar.u32(), x, y });
     }
-    return { meta, cells, res, sites, roads: roadNet(sites, cells, W), rivers: res.rivers, sea: seaLanes(sites, res.water, cells, W, H), anomalies };
+    return { meta, cells, res, sites, roads: roadNet(sites, cells, W, res.water), rivers: res.rivers, sea: seaLanes(sites, res.water, cells, W, H), anomalies };
   });
 }
 
@@ -352,14 +352,19 @@ function bodyTrail(seed: string, si: number, bi: number): TrailItem {
   return { path: m.path, nameKey: m.nameKey, nameKind: 'body', tag: m.kind };
 }
 
-const ROAD_MAX = 70; // cells: farther apart than this, settlements are not joined
+const ROAD_MAX = 90; // cells: farther apart than this, settlements are not joined
+const BRIDGE_MAX = 3; // cells of fresh water a road may cross in one go (a bridge or ford); salt water is for boats
+const ROAD_DETOUR = 2; // a land route may be at most this many times the straight distance
 
 /**
  * The planet's road net: a minimum spanning forest over the settlements, built only from links of at most ROAD_MAX cells that
- * do not cross water (nearest first, ties by index; distances compared squared, so integer-exact in every engine). A settlement
- * with no such link is left out. No draws: a pure function of the sites and the terrain.
+ * can be walked over dry land, going around water or over fresh water at most BRIDGE_MAX cells wide (needs the `water` layer; without
+ * it nothing is bridged) if the route is at most ROAD_DETOUR times the straight distance (nearest first
+ * by straight distance, ties by index; compared squared, so integer-exact in every engine). The link is still drawn straight: it
+ * stands for the connection, not the path. A settlement with no such link is left out. No draws: a pure function of the sites and
+ * the terrain.
  */
-export function roadNet(sites: { x: number; y: number }[], cells: Uint8Array, width: number): RoadSummary[] {
+export function roadNet(sites: { x: number; y: number }[], cells: Uint8Array, width: number, water?: Uint8Array): RoadSummary[] {
   const n = sites.length;
   const out: RoadSummary[] = [];
   const d2 = (i: number, j: number) => (sites[i]!.x - sites[j]!.x) ** 2 + (sites[i]!.y - sites[j]!.y) ** 2;
@@ -372,11 +377,50 @@ export function roadNet(sites: { x: number; y: number }[], cells: Uint8Array, wi
     }
     return true;
   };
-  const ok = new Map<number, boolean>(); // links worth walking: in reach and dry, checked once
+  /**
+   * A route of at most `limit` steps (8 neighbors) from i to j over dry land, crossing at most BRIDGE_MAX fresh-water cells in a row,
+   * found breadth-first; the fixed neighbor order makes it engine-independent. A state is a cell and how many wet cells run behind it.
+   */
+  const walkable = (i: number, j: number, limit: number) => {
+    const w = width;
+    const h = cells.length / width;
+    const R = BRIDGE_MAX + 1;
+    const start = sites[i]!.y * w + sites[i]!.x;
+    const goal = sites[j]!.y * w + sites[j]!.x;
+    const seen = new Set<number>([start * R]);
+    let frontier = [start * R];
+    for (let step = 0; step < limit && frontier.length > 0; step++) {
+      const next: number[] = [];
+      for (const st of frontier) {
+        const k = Math.floor(st / R);
+        const run = st % R;
+        const x = k % w;
+        const y = Math.floor(k / w);
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if ((dx === 0 && dy === 0) || nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+            const nk = ny * w + nx;
+            const wet = (cells[nk] as number) < 2;
+            if (wet && (!water || water[nk] === WATER_SALT || run >= BRIDGE_MAX)) continue; // salt water is for boats; a bridge has a length
+            const ns = nk * R + (wet ? run + 1 : 0);
+            if (seen.has(ns)) continue;
+            if (nk === goal && !wet) return true;
+            seen.add(ns);
+            next.push(ns);
+          }
+        }
+      }
+      frontier = next;
+    }
+    return false;
+  };
+  const ok = new Map<number, boolean>(); // links worth walking: in reach and walkable, checked once
   const linkable = (i: number, j: number) => {
     const key = i < j ? i * n + j : j * n + i;
     let v = ok.get(key);
-    if (v === undefined) ok.set(key, (v = d2(i, j) <= ROAD_MAX * ROAD_MAX && dry(i, j)));
+    if (v === undefined) ok.set(key, (v = d2(i, j) <= ROAD_MAX * ROAD_MAX && (dry(i, j) || walkable(i, j, Math.ceil(Math.sqrt(d2(i, j)) * ROAD_DETOUR)))));
     return v;
   };
   const joined = new Array<boolean>(n).fill(false);

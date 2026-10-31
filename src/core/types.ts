@@ -99,6 +99,8 @@ export interface DwellingSummary {
   builtWeek: number;
   /** Whether it stands now (set from the running district; at tick 0, `builtWeek === 0`). */
   built: boolean;
+  /** Decay, set from the running district: empty for years (still stands), fallen to ruin (not built, still drawn), or cleared away (nothing left). */
+  decay?: 'derelict' | 'ruin' | 'cleared';
   /** The footpath carved for a building finished later (cell index x 8 + the cell's class before), left out of `cells` until it stands. */
   track?: number[];
   inspected: boolean;

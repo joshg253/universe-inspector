@@ -31,6 +31,19 @@ const FINISH_EVERY_WEEKS = 4;
 const MAX_HOME_AREA = 16;
 /** District grid codes a home may grow onto (CELL.ground, CELL.green in town.ts); roads, plaza and water stay. */
 const FREE_CELLS = [0, 3];
+/** The district grid grows by this many cells on every side when a growing town runs out of open ground, up to MAX_GRID (a stand-in cap). */
+const GROW_STEP = 6;
+export const MAX_GRID = 160;
+/** A home empty this long is derelict: 10 years (stand-in; vacancies of a few years are normal in a living town). */
+const DERELICT_WEEKS = 52 * 10;
+/** A ruin is cleared, its ground freed, this many years after it fell: 20 to 50 (stand-in). */
+const CLEAR_YEARS = [20, 30] as const;
+/** A street cell with no occupied building within this many cells starts to wear (stand-in). */
+const KEPT_UP_RADIUS = 4;
+/** Idle years before the first wear step, per cell: 10 to 40; each further step takes half as long again (stand-in). */
+const WEAR_YEARS = [10, 30] as const;
+/** What a street cell becomes at each wear step (CELL codes in town.ts: road 1, plaza 2, green 3, track 5). */
+const WEAR_STEPS: Record<number, number[]> = { 1: [5, 3], 2: [1, 5, 3], 5: [3] };
 const BIRTH_PER_WEEK = 0.12 / 52; // per fertile woman (before her own fertility) living with an eligible man; tuned so districts stay roughly level
 const TWINS = 0.02;
 /** Chance per week that a partner moves in from elsewhere when a fertile woman has no eligible man in the building. */
@@ -224,6 +237,10 @@ export interface SiteLifeSeed {
   grid: { n: number; cells: Uint8Array };
   /** How well the surroundings feed the town, 0..1 (absent: plenty). Poor land slows births, arrivals and new building. */
   food?: number;
+  /** Whether the town may append dwellings and grow its grid when it runs out of plots (absent: it may not). */
+  growable?: boolean;
+  /** The grid's side cap when growable (absent: MAX_GRID). */
+  maxGrid?: number;
 }
 
 export interface Cell {
@@ -263,10 +280,21 @@ export class SiteLife {
   private readonly started: boolean[];
   /** Consecutive weeks a standing home has been empty. */
   private readonly emptyWeeks: number[];
-  private readonly plot: ({ x: number; y: number; w: number; h: number } | undefined)[];
+  private plot: ({ x: number; y: number; w: number; h: number } | undefined)[];
   /** 1 where any building stands. */
-  private readonly occ: Uint8Array;
-  private readonly grid: { n: number; cells: Uint8Array };
+  private occ: Uint8Array;
+  private grid: { n: number; cells: Uint8Array };
+  /** Cells the grid has gained on the left and top: every coordinate in the seed is this much further in now. */
+  private shiftX = 0;
+  private shiftY = 0;
+  private readonly growable: boolean;
+  /** The week each ruin was cleared away (-1: not yet). Its ground is free again, its index stays. */
+  private readonly clearedWeek: number[];
+  /** Wear on the grid: 0 none, else the cell code it has become plus one. Applied over the layout's cells. */
+  private worn: Uint8Array;
+  /** Whole years each street cell has had no occupied building near it. */
+  private idle: Uint8Array;
+  private readonly maxGrid: number;
   /** Consecutive weeks each dwelling has been full. */
   private readonly fullWeeks: number[];
   /** Homes that cannot grow any more (no free cell, or at the size cap): never tried again, since cells only fill. */
@@ -281,6 +309,8 @@ export class SiteLife {
     this.extra = data.dwellings.map(() => []);
     this.area = data.dwellings.map((d) => d.w * d.h);
     this.grid = data.grid;
+    this.growable = data.growable ?? false;
+    this.maxGrid = data.maxGrid ?? MAX_GRID;
     this.feed = 0.55 + 0.45 * (data.food ?? 1);
     this.occ = new Uint8Array(data.grid.n * data.grid.n);
     this.origin = data.dwellings.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h }));
@@ -290,6 +320,9 @@ export class SiteLife {
     this.builtWeek = data.dwellings.map((d) => ((UNLOCK_AGE[d.kind] ?? 0) > this.ageStart ? -1 : d.built ?? 0));
     for (const d of data.dwellings) this.paintRect(d);
     this.ruinedWeek = data.dwellings.map(() => -1);
+    this.clearedWeek = data.dwellings.map(() => -1);
+    this.worn = new Uint8Array(data.grid.n * data.grid.n);
+    this.idle = new Uint8Array(data.grid.n * data.grid.n);
     this.started = data.dwellings.map(() => false);
     this.emptyWeeks = data.dwellings.map(() => 0);
     this.fullWeeks = data.dwellings.map(() => 0);
@@ -428,6 +461,45 @@ export class SiteLife {
     return this.extra[dwelling]!;
   }
 
+  /** Wear on the streets: 0 none, else the cell code it has become plus one (see `wornCells`). */
+  get wear(): Uint8Array {
+    return this.worn;
+  }
+
+  /** Standing but empty for years. */
+  isDerelict(dwelling: number): boolean {
+    return this.isBuilt(dwelling) && this.kinds[dwelling] === 'home' && this.emptyWeeks[dwelling]! >= DERELICT_WEEKS;
+  }
+
+  /** Fallen to ruin and not yet cleared away. */
+  isRuin(dwelling: number): boolean {
+    return this.ruinedWeek[dwelling]! >= 0 && this.clearedWeek[dwelling]! < 0;
+  }
+
+  /** A ruin that has been cleared: nothing is drawn there and its ground is free. */
+  isCleared(dwelling: number): boolean {
+    return this.clearedWeek[dwelling]! >= 0;
+  }
+
+  /** Dwellings now, counting the ones appended after layout. */
+  get dwellingCount(): number {
+    return this.kinds.length;
+  }
+
+  /** Side of the grid now (it only grows, up to MAX_GRID). */
+  get gridSize(): number {
+    return this.grid.n;
+  }
+
+  /** How far the seed's coordinates have moved right and down as the grid grew on the left and top. */
+  get offset(): Cell {
+    return { x: this.shiftX, y: this.shiftY };
+  }
+
+  kindOf(dwelling: number): string {
+    return this.kinds[dwelling]!;
+  }
+
   /** The district's cells as laid out (footpaths of buildings finished later included). */
   get layoutCells(): Uint8Array {
     return this.grid.cells;
@@ -486,6 +558,85 @@ export class SiteLife {
     const k = this.kinds[dwelling];
     if (k !== 'home' && k !== 'shop') return 0;
     return capacityOf(this.area[dwelling]!);
+  }
+
+  /** Add GROW_STEP open cells on every side; everything keeps its place relative to the town. False at the cap. */
+  private growGrid(): boolean {
+    const old = this.grid.n;
+    const p = Math.min(GROW_STEP, Math.floor((this.maxGrid - old) / 2));
+    if (p < 1) return false;
+    const n = old + 2 * p;
+    const cells = new Uint8Array(n * n);
+    const occ = new Uint8Array(n * n);
+    for (let y = 0; y < old; y++) {
+      cells.set(this.grid.cells.subarray(y * old, (y + 1) * old), (y + p) * n + p);
+      occ.set(this.occ.subarray(y * old, (y + 1) * old), (y + p) * n + p);
+    }
+    const worn = new Uint8Array(n * n);
+    const idle = new Uint8Array(n * n);
+    for (let y = 0; y < old; y++) {
+      worn.set(this.worn.subarray(y * old, (y + 1) * old), (y + p) * n + p);
+      idle.set(this.idle.subarray(y * old, (y + 1) * old), (y + p) * n + p);
+    }
+    this.grid = { n, cells };
+    this.occ = occ;
+    this.worn = worn;
+    this.idle = idle;
+    for (const o of this.origin) (o.x += p, o.y += p);
+    this.plot = this.plot.map((pl) => (pl ? { x: pl.x + p, y: pl.y + p, w: pl.w, h: pl.h } : pl)); // copies: the seed's plots are shared
+    for (const list of this.extra) for (const c of list) (c.x += p, c.y += p);
+    this.shiftX += p;
+    this.shiftY += p;
+    return true;
+  }
+
+  /** The open w x h rectangle nearest the middle of the grid with a free ring around it (buildings never touch), or undefined. */
+  private openSpot(w: number, h: number): Cell | undefined {
+    const n = this.grid.n;
+    const mid = n / 2;
+    let best: Cell | undefined;
+    let bestD = Infinity;
+    for (let y = 1; y + h < n; y++) {
+      for (let x = 1; x + w < n; x++) {
+        const d = Math.hypot(x + w / 2 - mid, y + h / 2 - mid);
+        if (d >= bestD) continue;
+        let ok = true;
+        for (let yy = y - 1; yy <= y + h && ok; yy++) {
+          for (let xx = x - 1; xx <= x + w && ok; xx++) {
+            const k = yy * n + xx;
+            const inside = xx >= x && xx < x + w && yy >= y && yy < y + h;
+            if (this.occ[k] || (inside && !FREE_CELLS.includes(this.grid.cells[k]!))) ok = false;
+          }
+        }
+        if (ok) (best = { x, y }, bestD = d);
+      }
+    }
+    return best;
+  }
+
+  /** Start a new home on open ground (growing the grid if there is none), finished some weeks on. Returns whether one was started. */
+  private appendHome(week: number): boolean {
+    const w = roll(this.base, week, 0, 31) < 0.5 ? 2 : 3;
+    const h = roll(this.base, week, 1, 31) < 0.6 ? 2 : 3;
+    let at = this.openSpot(w, h);
+    while (!at && this.growGrid()) at = this.openSpot(w, h);
+    if (!at) return false;
+    this.kinds.push('home');
+    this.area.push(w * h);
+    this.origin.push({ x: at.x, y: at.y, w, h });
+    this.plot.push(undefined);
+    this.extra.push([]);
+    this.byOrigin.push([]);
+    this.builtWeek.push(week + 20 + Math.floor(roll(this.base, week, 2, 31) * 32));
+    this.ruinedWeek.push(-1);
+    this.clearedWeek.push(-1);
+    this.started.push(true);
+    this.emptyWeeks.push(0);
+    this.fullWeeks.push(0);
+    this.boxedIn.push(false);
+    this.finish.push(0);
+    this.paintRect({ x: at.x, y: at.y, w, h });
+    return true;
   }
 
   private paintRect(r: { x: number; y: number; w: number; h: number }): void {
@@ -778,6 +929,8 @@ export class SiteLife {
       if (pick >= 0) this.builtWeek[pick] = week + 20 + Math.floor(roll(base, week, 1, 27) * 32);
       if (pick >= 0) this.started[pick] = true;
       startedNow = pick >= 0;
+      // No reserve left: a growing town appends a home (and widens its grid if the ground is used up).
+      if (pick < 0 && !farmWaits && this.growable) startedNow = this.appendHome(week);
     }
 
     // A workplace whose age has come is started now and then, one at a time. A town the land cannot feed starts a farm first;
@@ -813,6 +966,7 @@ export class SiteLife {
       const gone = this.kinds[d] === 'home' ? this.emptyWeeks[d]! > 52 * 8 && fortune < 0.5 : g.length === 0 && fortune < 0.15;
       if (gone && roll(base, week, d, 28) < 1 / (52 * 4)) this.ruinedWeek[d] = week;
     });
+    if (week % 52 === 0) this.yearlyDecay(week);
 
     // Households arriving from outside into vacant homes. The more homes stand empty, the likelier one fills.
     const vacant: number[] = [];
@@ -821,6 +975,49 @@ export class SiteLife {
     });
     if (vacant.length > 0 && roll(base, week, 0, 20) < vacant.length * HOUSEHOLD_PER_VACANT_WEEK * crowd) {
       this.arrive(vacant[Math.floor(roll(base, week, 1, 21) * vacant.length)]!, week, tick, emit);
+    }
+  }
+
+  /** Once a year: ruins are cleared after a few decades, and streets with nobody near them wear a step (an occupied one is mended). */
+  private yearlyDecay(week: number): void {
+    const base = this.base;
+    for (let d = 0; d < this.kinds.length; d++) {
+      const r = this.ruinedWeek[d]!;
+      if (r < 0 || this.clearedWeek[d]! >= 0) continue;
+      if (week - r < 52 * (CLEAR_YEARS[0] + Math.floor(roll(base, d, 0, 34) * CLEAR_YEARS[1]))) continue;
+      this.clearedWeek[d] = week;
+      const n = this.grid.n;
+      const own = this.origin[d]!;
+      for (let y = own.y; y < own.y + own.h; y++) for (let x = own.x; x < own.x + own.w; x++) this.occ[y * n + x] = 0;
+      for (const c of this.extra[d]!) this.occ[c.y * n + c.x] = 0;
+    }
+    const n = this.grid.n;
+    const kept = new Uint8Array(n * n);
+    const living = new Set<number>();
+    for (const p of this.alive) living.add(p.residence);
+    for (let d = 0; d < this.kinds.length; d++) {
+      if (!this.isBuilt(d, week)) continue;
+      const k = this.kinds[d]!;
+      // A home or shop is kept up by who lives there; a workplace or the hall by the town having anyone at all.
+      if (k === 'home' || k === 'shop' ? !living.has(d) : this.living === 0) continue;
+      const o = this.origin[d]!;
+      for (let y = Math.max(0, o.y - KEPT_UP_RADIUS); y < Math.min(n, o.y + o.h + KEPT_UP_RADIUS); y++) {
+        for (let x = Math.max(0, o.x - KEPT_UP_RADIUS); x < Math.min(n, o.x + o.w + KEPT_UP_RADIUS); x++) kept[y * n + x] = 1;
+      }
+    }
+    for (let i = 0; i < n * n; i++) {
+      const seq = WEAR_STEPS[this.grid.cells[i]!];
+      if (!seq) continue;
+      if (kept[i]) {
+        this.idle[i] = 0;
+        this.worn[i] = 0;
+        continue;
+      }
+      if (this.idle[i]! < 255) this.idle[i]!++;
+      const first = WEAR_YEARS[0] + Math.floor(roll(base, (i % n) - this.shiftX, Math.floor(i / n) - this.shiftY, 33) * WEAR_YEARS[1]);
+      let steps = 0;
+      while (steps < seq.length && this.idle[i]! >= first * (1 + 0.5 * steps)) steps++;
+      this.worn[i] = steps > 0 ? seq[steps - 1]! + 1 : 0;
     }
   }
 
@@ -1003,9 +1200,23 @@ export function visibleCells(cells: Uint8Array, dwellings: { built: boolean; tra
 }
 
 /** The district view with live headcounts and footprints (homes grow). The settlement's population is the people living now. */
+/**
+ * The cells with wear applied (see `SiteLife.wear`). Returns the input when nothing is worn. A cell `visibleCells` put back (the
+ * footpath of a building not standing) is left alone: it is not a path yet, so it cannot wear.
+ */
+export function wornCells(cells: Uint8Array, wear: Uint8Array, layout: Uint8Array): Uint8Array {
+  let out = cells;
+  for (let i = 0; i < wear.length; i++) {
+    if (!wear[i] || cells[i] !== layout[i]) continue;
+    if (out === cells) out = cells.slice();
+    out[i] = wear[i]! - 1;
+  }
+  return out;
+}
+
 export function applyLife(view: SiteView, life: SiteLife): SiteView {
   const counts = new Array<number>(view.dwellings.length).fill(0);
   for (const p of life.people) if (p.deathTick === null) counts[p.residence]!++;
-  const dwellings = view.dwellings.map((d, i) => ({ ...d, extra: [...life.extension(i)], capacity: life.capacity(i), built: life.isBuilt(i), builtWeek: life.builtWeekOf(i), residents: counts[i] ?? d.residents }));
-  return { ...view, population: life.living, cells: visibleCells(life.layoutCells, dwellings), dwellings };
+  const dwellings = view.dwellings.map((d, i) => ({ ...d, extra: [...life.extension(i)], capacity: life.capacity(i), built: life.isBuilt(i), decay: life.isCleared(i) ? ('cleared' as const) : life.isRuin(i) ? ('ruin' as const) : life.isDerelict(i) ? ('derelict' as const) : undefined, builtWeek: life.builtWeekOf(i), residents: counts[i] ?? d.residents }));
+  return { ...view, population: life.living, cells: wornCells(visibleCells(life.layoutCells, dwellings), life.wear, life.layoutCells), dwellings };
 }
