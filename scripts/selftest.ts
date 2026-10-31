@@ -2,10 +2,10 @@
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
 import { MAX_SOLAR_DAY, MIN_DAYS_PER_YEAR, orbitalPeriod, roadNet, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
-import { districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, meanAgeSeries, residenceAt, applyLife, AGE_TOP, UNLOCK_AGE, AGE_NEEDS } from '../src/core/life';
+import { MAX_GRID, districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, meanAgeSeries, residenceAt, applyLife, AGE_TOP, UNLOCK_AGE, AGE_NEEDS } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
-import { portCell } from '../src/core/sea';
+import { portCell, seaLanes } from '../src/core/sea';
 import { buildResources, canFound, foodSupply, riverChance, type Resources } from '../src/core/resources';
 import { rngFor } from '../src/core/rng';
 import { Sim, dynFor } from '../src/core/sim';
@@ -736,7 +736,12 @@ assert.equal(viewLevel('s1/b2'), 'body');
         const view = applyLife(genSite(s, 0, b, st.index, new DeltaStore()), l);
         view.dwellings.forEach((d, i) => assert.equal(d.built, l.isBuilt(i), 'the view says which buildings stand'));
         view.dwellings.forEach((d) => {
-          for (const e of d.track ?? []) assert.equal(view.cells[e >> 3] === 5, d.built, 'a path is drawn once its building stands');
+          for (const e of d.track ?? []) {
+            // Worn street cells change code by themselves, so only unworn cells say whether a built building's path is drawn;
+            // the path of one not standing is never drawn, worn or not (no green over ground that never had a path).
+            if (!d.built) assert.equal(view.cells[e >> 3], e & 7, 'no path shows for a building that does not stand');
+            else if (l.wear[e >> 3] === 0) assert.equal(view.cells[e >> 3], 5, 'a path is drawn once its building stands');
+          }
         });
         sd.dwellings.forEach((d, i) => {
           if ((d.built ?? 0) !== 0 && l.isBuilt(i) && (d.kind === 'home' || d.kind === 'shop')) {
@@ -1036,6 +1041,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.equal(firstStarted(6), 'farm', 'a hungry town starts its farm first');
   assert.equal(firstStarted(1), 'mill', 'a fed town takes the workplaces in order');
   let edges = 0;
+  let wetLinks = 0;
   let rivers = 0;
   let lanes = 0;
   let grounds = 0;
@@ -1053,11 +1059,12 @@ assert.equal(viewLevel('s1/b2'), 'body');
           seen.add(r.b);
           const a = body.sites[r.a]!;
           const b = body.sites[r.b]!;
-          assert.ok(Math.hypot(a.x - b.x, a.y - b.y) <= 70, 'within reach');
+          assert.ok(Math.hypot(a.x - b.x, a.y - b.y) <= 90, 'within reach');
+          assert.ok(body.cells[a.y * body.w + a.x]! >= 2 && body.cells[b.y * body.w + b.x]! >= 2, 'both ends stand on land');
           for (let k = 0; k <= 20; k++) {
             const x = Math.round(a.x + ((b.x - a.x) * k) / 20);
             const y = Math.round(a.y + ((b.y - a.y) * k) / 20);
-            assert.ok(body.cells[y * body.w + x]! >= 2, 'a road does not cross water');
+            if (body.cells[y * body.w + x]! < 2) wetLinks++; // a link whose straight line crosses water: a land route goes around
           }
         }
         assert.deepEqual(genBody(seed, si, bi, new DeltaStore()).roads, body.roads, 'roads are a pure function of the seed');
@@ -1083,7 +1090,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
         assert.deepEqual(genBody(seed, si, bi, new DeltaStore()).rivers, body.rivers, 'rivers are a pure function of the seed');
         const wet = (path: number[], what: string) => {
           for (let k = 0; k < path.length; k += 2) {
-            assert.equal(body.layers.water[path[k + 1]! * body.w + path[k]!], 2, what + ' stays on salt water');
+            assert.ok(body.layers.water[path[k + 1]! * body.w + path[k]!]! > 0, what + ' stays on water');
             if (k > 0) assert.ok(Math.max(Math.abs(path[k]! - path[k - 2]!), Math.abs(path[k + 1]! - path[k - 1]!)) === 1, what + ' moves one cell at a time');
           }
         };
@@ -1101,6 +1108,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
           grounds++;
           wet(f.path, 'a fishing lane');
           assert.equal(body.cells[f.y * body.w + f.x], 0, 'a fishing ground is deep water');
+          assert.equal(body.layers.water[f.y * body.w + f.x], 2, 'a fishing ground is salt');
           assert.ok(f.rich >= 8, 'a fishing ground is rich');
         }
         assert.deepEqual(genBody(seed, si, bi, new DeltaStore()).seaRoutes, body.seaRoutes, 'sea routes are a pure function of the seed');
@@ -1109,18 +1117,183 @@ assert.equal(viewLevel('s1/b2'), 'body');
     }
   }
   assert.ok(edges > 0, 'some roads exist');
+  assert.ok(wetLinks > 0, 'some links go around water');
   assert.ok(rivers > 0, 'some rivers exist');
   assert.ok(lanes > 0, 'some sea routes exist');
   assert.ok(grounds > 0, 'some fishing grounds exist');
-  // By hand: a lake between A and B must not strand A when A has a dry link to C; B and C join over their own dry link.
+  // By hand: fresh water carries boats too. Two towns on one lake are joined, a town on a river joins the lake it drains into, a
+  // town away from any water is left out, and nothing is fished in fresh water.
+  {
+    const W = 40;
+    const H = 20;
+    const water = new Uint8Array(W * H);
+    const deep = new Uint8Array(W * H).fill(3);
+    for (let y = 5; y <= 9; y++) for (let x = 6; x <= 16; x++) (water[y * W + x] = 1, (deep[y * W + x] = 0));
+    for (let x = 17; x <= 30; x++) water[7 * W + x] = 1; // a river running out of the lake
+    const net = seaLanes([{ x: 4, y: 7 }, { x: 18, y: 8 }, { x: 31, y: 5 }, { x: 20, y: 17 }], water, deep, W, H);
+    assert.deepEqual(net.routes.map((r) => [r.a, r.b]), [[0, 1], [1, 2]], 'lake and river towns are joined over water; the dry one is left out');
+    assert.equal(net.fishing.length, 0, 'nothing is fished in fresh water');
+    for (const r of net.routes) {
+      assert.ok(r.path.length >= 4, 'a lane has a path');
+      for (let k = 0; k < r.path.length; k += 2) {
+        assert.ok(water[r.path[k + 1]! * W + r.path[k]!], 'a lane runs over water');
+        if (k >= 2) assert.ok(Math.max(Math.abs(r.path[k]! - r.path[k - 2]!), Math.abs(r.path[k + 1]! - r.path[k - 1]!)) === 1, 'a lane moves one cell at a time');
+      }
+    }
+  }
+  // By hand: a town a few cells back from the shore still puts out boats; one far inland does not.
+  {
+    const W = 40;
+    const H = 20;
+    const water = new Uint8Array(W * H);
+    const deep = new Uint8Array(W * H).fill(3);
+    for (let y = 5; y <= 9; y++) for (let x = 12; x <= 20; x++) (water[y * W + x] = 1, (deep[y * W + x] = 0));
+    const net = seaLanes([{ x: 7, y: 7 }, { x: 25, y: 7 }, { x: 33, y: 17 }], water, deep, W, H);
+    assert.deepEqual(net.routes.map((r) => [r.a, r.b]), [[0, 1]], 'towns 5 cells from the shore are ports; one 13 away is not');
+  }
+  // By hand: a town between a small pond (1 cell) and the sea (2 cells) puts out to sea, so it keeps its sea lanes and fishing.
+  {
+    const W = 40;
+    const H = 20;
+    const water = new Uint8Array(W * H);
+    water[10 * W + 9] = 1; // a pond cell beside the town at (10, 10)
+    water[10 * W + 12] = 2; // sea two cells away
+    assert.equal(portCell(water, W, H, 10, 10), 10 * W + 12, 'salt water within reach beats a nearer pond');
+    water[10 * W + 12] = 0;
+    assert.equal(portCell(water, W, H, 10, 10), 10 * W + 9, 'with no sea near, the pond is the port');
+  }
+  // By hand: a lake between A and B is walked around (a short detour), so A joins B, and B joins C.
   {
     const cells = new Uint8Array(96 * 64).fill(3);
     for (let y = 0; y < 16; y++) for (let x = 14; x <= 16; x++) cells[y * 96 + x] = 0;
     const sites = [{ x: 10, y: 10 }, { x: 20, y: 10 }, { x: 20, y: 30 }];
-    assert.deepEqual(roadNet(sites, cells, 96), [{ a: 0, b: 2 }, { a: 2, b: 1 }], 'a wet link is skipped, the dry ones join everything');
-    assert.deepEqual(roadNet([{ x: 5, y: 5 }, { x: 90, y: 5 }], new Uint8Array(96 * 64).fill(3), 96), [], 'beyond reach: no road');
+    assert.deepEqual(roadNet(sites, cells, 96), [{ a: 0, b: 1 }, { a: 1, b: 2 }], 'the nearest links join everything, around the lake');
+    assert.deepEqual(roadNet([{ x: 5, y: 5 }, { x: 90, y: 40 }], new Uint8Array(96 * 64).fill(3), 96), [], 'beyond reach: no road');
+    assert.deepEqual(roadNet([{ x: 5, y: 5 }, { x: 85, y: 5 }], new Uint8Array(96 * 64).fill(3), 96), [{ a: 0, b: 1 }], '80 cells apart is still joined');
     assert.deepEqual(roadNet([{ x: 5, y: 5 }], cells, 96), [], 'one settlement: no roads');
+    // A short lake between two close towns is walked around (the road is still drawn as a straight link); one across the whole map, or a
+    // detour more than twice the straight distance, is not.
+    const pond = new Uint8Array(96 * 64).fill(3);
+    for (let y = 6; y <= 14; y++) for (let x = 14; x <= 16; x++) pond[y * 96 + x] = 0;
+    assert.deepEqual(roadNet([{ x: 10, y: 10 }, { x: 20, y: 10 }], pond, 96), [{ a: 0, b: 1 }], 'a short lake is walked around');
+    const sea = new Uint8Array(96 * 64).fill(3);
+    for (let y = 0; y < 64; y++) for (let x = 14; x <= 16; x++) sea[y * 96 + x] = 0;
+    assert.deepEqual(roadNet([{ x: 10, y: 10 }, { x: 20, y: 10 }], sea, 96), [], 'water across the whole map: no road');
+    const wall = new Uint8Array(96 * 64).fill(3);
+    for (let y = 0; y <= 40; y++) for (let x = 14; x <= 16; x++) wall[y * 96 + x] = 0;
+    assert.deepEqual(roadNet([{ x: 10, y: 10 }, { x: 20, y: 10 }], wall, 96), [], 'a detour over twice the straight distance: no road');
+    // A diagonal wall of water: a step between the two land cells at its corner squeezes through no gap, so there is no road.
+    const diag = new Uint8Array(96 * 64).fill(3);
+    for (let y = 0; y <= 60; y++) diag[y * 96 + (60 - y)] = 0;
+    assert.deepEqual(roadNet([{ x: 20, y: 20 }, { x: 50, y: 50 }], diag, 96), [], 'a road does not slip diagonally between two water cells');
+    // Bridges: a road crosses fresh water up to 3 cells wide, never salt water or anything wider.
+    const strip = (w: number, kind: number) => {
+      const cells = new Uint8Array(96 * 64).fill(3);
+      const water = new Uint8Array(96 * 64);
+      for (let y = 0; y < 64; y++) for (let x = 14; x < 14 + w; x++) (cells[y * 96 + x] = 0, (water[y * 96 + x] = kind));
+      return { cells, water };
+    };
+    const pair = [{ x: 10, y: 10 }, { x: 20, y: 10 }];
+    assert.deepEqual(roadNet(pair, strip(3, 1).cells, 96), [], 'without a water layer nothing is bridged');
+    assert.deepEqual(roadNet(pair, strip(3, 1).cells, 96, strip(3, 1).water), [{ a: 0, b: 1 }], 'a river 3 cells wide is bridged');
+    assert.deepEqual(roadNet(pair, strip(4, 1).cells, 96, strip(4, 1).water), [], 'a river 4 cells wide is not');
+    assert.deepEqual(roadNet(pair, strip(2, 2).cells, 96, strip(2, 2).water), [], 'salt water is never bridged');
+    assert.deepEqual(roadNet(pair, pond, 96), roadNet([{ x: 10, y: 10 }, { x: 20, y: 10 }], pond.slice(), 96), 'same net every time');
   }
+}
+
+// Run-time growth: a town that fills its dwelling list keeps building. New dwellings are appended (existing indices and people
+// never move), and once the grid is full it grows outward, up to MAX_GRID.
+{
+  const packed = (): SiteLifeSeed => ({
+    path: 's0/b0/t0',
+    dwellings: Array.from({ length: 9 }, (_, i) => ({ path: `d${i}`, kind: 'home', residents: 4, x: 1 + 4 * (i % 3), y: 1 + 4 * Math.floor(i / 3), w: 2, h: 2, plot: { x: 4 * (i % 3), y: 4 * Math.floor(i / 3), w: 4, h: 4 } })),
+    grid: { n: 14, cells: new Uint8Array(14 * 14) },
+    growable: true,
+  });
+  let grew = 0;
+  let wider = 0;
+  for (let k = 0; k < 12; k++) {
+    const fresh = packed();
+    const plots = fresh.dwellings.map((d) => ({ ...d.plot! }));
+    const l = new SiteLife(`grow${k}`, fresh);
+    for (let y = 1; y <= 400; y++) l.advanceTo(52 * y); // watched year by year
+    if (l.dwellingCount > fresh.dwellings.length) grew++;
+    if (l.gridSize > 14) wider++;
+    assert.ok(l.gridSize <= MAX_GRID, 'the grid stops at its cap');
+    assert.deepEqual(fresh.dwellings.map((d) => d.plot), plots, 'growing the grid never moves the seed\'s own plots');
+    const jump = new SiteLife(`grow${k}`, packed());
+    jump.advanceTo(52 * 400);
+    assert.equal(jump.dwellingCount, l.dwellingCount, 'jumping equals watching with a growing dwelling list');
+    assert.equal(jump.gridSize, l.gridSize, 'jumping equals watching: same grid');
+    assert.deepEqual(jump.offset, l.offset, 'jumping equals watching: same offset');
+    for (let i = 0; i < fresh.dwellings.length; i++) assert.equal(l.kindOf(i), 'home', 'existing indices never move');
+  }
+  assert.ok(grew > 6, `a full town appends dwellings: ${grew}/12`);
+  assert.ok(wider > 3, `a full grid grows outward: ${wider}/12`);
+}
+
+// Decay: an empty building goes derelict, then ruin, then is cleared (its ground freed); a street nobody lives near wears
+// road -> track -> green, and comes back if people return. Everything is a function of the week.
+{
+  const mk = (): SiteLifeSeed => {
+    const n = 30;
+    const cells = new Uint8Array(n * n);
+    for (let x = 0; x < n; x++) cells[10 * n + x] = 1;
+    for (let y = 0; y < n; y++) cells[y * n + 20] = 1;
+    for (let y = 14; y < 17; y++) for (let x = 14; x < 17; x++) cells[y * n + x] = 2;
+    const dwellings = Array.from({ length: 8 }, (_, i) => ({ path: `d${i}`, kind: 'home', residents: 3, x: 2 + 3 * i, y: 7, w: 2, h: 2 }));
+    return { path: 's0/b0/t0', dwellings, grid: { n, cells } };
+  };
+  const R = 4; // streets within this many cells of an occupied building are kept up
+  let dead = 0;
+  let wornSeeds = 0;
+  for (let k = 0; k < 40; k++) {
+    const sd = mk();
+    const l = new SiteLife(`decay${k}`, sd);
+    assert.ok(l.wear.every((v) => v === 0), 'a new town has no worn streets');
+    let derelict = -1;
+    let ruin = -1;
+    let cleared = -1;
+    for (let y = 1; y <= 1500; y++) {
+      l.advanceTo(52 * y);
+      const idx = sd.dwellings.map((_, i) => i);
+      if (derelict < 0 && idx.some((i) => l.isDerelict(i))) derelict = y;
+      if (ruin < 0 && idx.some((i) => l.isRuin(i))) ruin = y;
+      if (cleared < 0 && idx.some((i) => l.isCleared(i))) cleared = y;
+      if (y % 25 === 0) {
+        // No street within R of an occupied building is worn.
+        l.wear.forEach((v, c) => {
+          if (v === 0) return;
+          const cx = c % 30;
+          const cy = Math.floor(c / 30);
+          for (const [i, d] of sd.dwellings.entries()) {
+            if (l.residents(i).length > 0 && l.isBuilt(i) && cx >= d.x - R && cx < d.x + d.w + R && cy >= d.y - R && cy < d.y + d.h + R) assert.fail(`decay${k} y${y}: a street by an occupied home is worn`);
+          }
+        });
+      }
+    }
+    if (l.living === 0) {
+      dead++;
+      for (let i = 0; i < 8; i++) {
+        if (!l.isCleared(i)) continue;
+        const d = sd.dwellings[i]!;
+        for (let yy = d.y; yy < d.y + d.h; yy++) for (let xx = d.x; xx < d.x + d.w; xx++) assert.ok(!l.occupiedAt(xx, yy), `decay${k}: cleared ground is free again`);
+      }
+      assert.ok(derelict > 0 && ruin >= derelict && cleared > ruin, `decay${k}: derelict ${derelict} -> ruin ${ruin} -> cleared ${cleared}`);
+      assert.ok(l.wear.some((v) => v !== 0), `decay${k}: an empty town's streets wear`);
+      // Freed ground: a cleared building no longer holds cells.
+      for (let i = 0; i < 8; i++) if (l.isCleared(i)) assert.equal(l.isRuin(i), false, 'a cleared building is not a ruin');
+    } else {
+      assert.ok(Array.from(l.wear).filter((v) => v !== 0).length < 900, 'a living town keeps most of its streets');
+    }
+    if (l.wear.some((v) => v !== 0)) wornSeeds++;
+    const jump = new SiteLife(`decay${k}`, mk());
+    jump.advanceTo(52 * 1500);
+    assert.deepEqual(Array.from(jump.wear), Array.from(l.wear), 'jumping equals watching with decay');
+  }
+  assert.ok(dead >= 3, `some towns die out: ${dead}`);
+  assert.ok(wornSeeds >= dead, `worn streets: ${wornSeeds}`);
 }
 
 console.log(`ok: walked ${walked} settlements across 18 systems; names: ${names.join(' / ')}`);

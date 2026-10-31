@@ -111,6 +111,8 @@ export class MapCanvas {
   private view: View | null = null;
   private dyn: Dyn | null = null;
   private off: HTMLCanvasElement | null = null;
+  /** The cells the offscreen terrain was drawn from: a district's streets and paths change as it ages (see `setView`). */
+  private offCells: Uint8Array | null = null;
   private scale = 1;
   private ox = 0;
   private oy = 0;
@@ -177,6 +179,9 @@ export class MapCanvas {
   setView(view: View): void {
     const same = this.view?.path === view.path;
     this.view = view;
+    const cells = view.level === 'site' ? view.cells : null;
+    if (same && cells && this.offCells && !sameCells(cells, this.offCells)) this.off = this.buildOffscreen(view); // streets wore or a path appeared
+    this.offCells = cells;
     if (!same) {
       this.off = this.buildOffscreen(view);
       this.hover = null;
@@ -910,6 +915,7 @@ export class MapCanvas {
       for (const p of v.plots) {
         const own = p.dwelling >= 0 ? v.dwellings[p.dwelling] : undefined;
         if (own && !own.built && own.builtWeek < 0) continue; // held in reserve: no plot until it is wanted
+        if (own?.decay === 'cleared') continue; // cleared away: bare ground
         if (!own?.built) {
           ctx.fillStyle = 'rgba(255,255,255,0.07)';
           ctx.fillRect(X(p.x), Y(p.y), p.w * s, p.h * s);
@@ -923,10 +929,24 @@ export class MapCanvas {
     const showDwellings = this.marks['site.dwellings'] !== false;
     if (showDwellings) {
       for (const d of v.dwellings) {
+        if (d.decay === 'ruin') {
+          // A ruin: the outline of what stood, broken, with no fill.
+          ctx.save();
+          ctx.setLineDash([2, 3]);
+          ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+          ctx.lineWidth = 1;
+          outline(ctx, footprint(d), X, Y, 0.5);
+          ctx.restore();
+          continue;
+        }
         if (!d.built) continue;
         ctx.fillStyle = this.lensColor(d);
         const cells = footprint(d);
         for (const c of cells) ctx.fillRect(X(c.x), Y(c.y), s, s);
+        if (d.decay === 'derelict') {
+          ctx.fillStyle = 'rgba(0,0,0,0.38)'; // empty for years: the colour fades
+          for (const c of cells) ctx.fillRect(X(c.x), Y(c.y), s, s);
+        }
         ctx.strokeStyle = 'rgba(0,0,0,0.55)';
         ctx.lineWidth = 1;
         outline(ctx, cells, X, Y, 0.5);
@@ -998,4 +1018,10 @@ export class MapCanvas {
       }
     }
   }
+}
+
+function sameCells(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
