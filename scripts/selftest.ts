@@ -1,7 +1,7 @@
 // Core invariants, run with `npm test`. No browser needed: core/ has no DOM.
 import assert from 'node:assert/strict';
 import { DeltaStore } from '../src/core/deltas';
-import { MAX_SOLAR_DAY, MIN_DAYS_PER_YEAR, orbitalPeriod, roadNet, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
+import { MAX_SOLAR_DAY, MIN_DAYS_PER_YEAR, orbitalPeriod, roadNet, solarDay, bodySites, genBody, genRecord, genSite, genSystem, genUniverse, liveSite, settledBodyIndexes, siteLifeSeed } from '../src/core/generate';
 import { MAX_GRID, districtSeries, SiteLife, type SiteLifeSeed, TICKS_PER_YEAR, TICKS_PER_WEEK, ageAt, capacityOf, livingSeries, meanAgeSeries, residenceAt, applyLife, AGE_TOP, UNLOCK_AGE, AGE_NEEDS } from '../src/core/life';
 import { viewLevel } from '../src/core/path';
 import { layoutTown } from '../src/core/town';
@@ -477,7 +477,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
     assert.ok(vacant / homes < 0.55, `vacancy after a century: ${vacant}/${homes}`);
     assert.ok(arrivedKids > 0, 'households with children arrive');
     assert.ok(arrivedKidsMoved > 0, 'children who arrived with a household can leave home and found their own');
-    assert.ok(end > start * 0.6 && end < start * 1.6, `population after a century: ${start} -> ${end}`);
+        // Towns that may build their own homes also draw in households, so the old 1.6 ceiling (set when the plot list was fixed) is 2.
+        assert.ok(end > start * 0.6 && end < start * 2, `population after a century: ${start} -> ${end}`);
   }
 
   // Plots: parcels never overlap, never lie on the plaza or water, each building stands inside its own plot, and the plot
@@ -739,10 +740,16 @@ assert.equal(viewLevel('s1/b2'), 'body');
           for (const e of d.track ?? []) {
             // Worn street cells change code by themselves, so only unworn cells say whether a built building's path is drawn;
             // the path of one not standing is never drawn, worn or not (no green over ground that never had a path).
-            if (!d.built) assert.equal(view.cells[e >> 3], e & 7, 'no path shows for a building that does not stand');
-            else if (l.wear[e >> 3] === 0) assert.equal(view.cells[e >> 3], 5, 'a path is drawn once its building stands');
+            if (!d.built) assert.ok(view.cells[e >> 3] === (e & 7) || l.layoutCells[e >> 3] === 1, 'no path shows for a building that does not stand' + ' (unless it joins streets as a road)');
+            else if (l.wear[e >> 3] === 0) assert.ok(view.cells[e >> 3] === 5 || view.cells[e >> 3] === 1, 'a path is drawn once its building stands (as a road when it joins streets)');
           }
         });
+        for (let i = sd.dwellings.length; i < l.dwellingCount; i++) {
+          if (l.isBuilt(i) && l.kindOf(i) === 'home') {
+            standing++; // homes the town added itself are later buildings too
+            if (l.residents(i).length > 0) filled++;
+          }
+        }
         sd.dwellings.forEach((d, i) => {
           if ((d.built ?? 0) !== 0 && l.isBuilt(i) && (d.kind === 'home' || d.kind === 'shop')) {
             standing++;
@@ -761,13 +768,13 @@ assert.equal(viewLevel('s1/b2'), 'body');
           assert.ok(pts.length > 2 && pts.every((p) => p.v >= 0), 'a rate graph has points');
           assert.ok(Math.abs(pts.reduce((n, p, i) => n + p.v * (((p.t - (pts[i - 1]?.t ?? 0)) / TICKS_PER_WEEK) / 52), 0) - total) <= total * 0.02 + 8, `the ${kind} rate adds up to the total`);
         }
-        assert.equal(lastOf('dwellings'), sd.dwellings.filter((_, i) => l.isBuilt(i)).length, 'the dwellings graph ends at what stands');
+        assert.equal(lastOf('dwellings'), Array.from({ length: l.dwellingCount }, (_, i) => i).filter((i) => l.isBuilt(i)).length, 'the dwellings graph ends at what stands');
         const jump = new SiteLife(s, sd);
         jump.advanceTo(52 * 300);
         assert.equal(jump.living, l.living, 'jumping equals watching with later buildings');
-        sd.dwellings.forEach((d, i) => {
+        for (let i = 0; i < l.dwellingCount; i++) {
           assert.deepEqual(jump.residents(i).map((p) => p.id), l.residents(i).map((p) => p.id), 'same people in every dwelling');
-        });
+        }
       }
     }
   }
@@ -782,8 +789,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
         let peak = 0;
         for (let y = 100; y <= 1000; y += 100) {
           l.advanceTo(52 * y);
-          peak = Math.max(peak, sd.dwellings.filter((_, i) => l.isBuilt(i)).length);
-          sd.dwellings.forEach((_, i) => {
+          peak = Math.max(peak, Array.from({ length: l.dwellingCount }, (_, i) => i).filter((i) => l.isBuilt(i)).length);
+          Array.from({ length: l.dwellingCount }, (_, i) => i).forEach((i) => {
             if (!l.isBuilt(i)) assert.equal(l.residents(i).length, 0, 'nobody lives in a ruin');
           });
         }
@@ -797,7 +804,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.ok(later > 50, `later buildings: ${later}`);
   assert.ok(farms > 20, `farmsteads far from the center: ${farms}`);
   assert.ok(reserved > 0 && reserveUsed > 0 && reserveUsed < reserved, `reserve plots are built when needed, not all at once: ${reserveUsed}/${reserved}`);
-  assert.ok(standing > 0 && filled > standing / 3, `built later buildings filled: ${filled}/${standing}`);
+    // A quarter, not a third: a town that builds its own homes ends up with more of them than people (about 32% filled).
+    assert.ok(standing > 0 && filled > standing / 4, `built later buildings filled: ${filled}/${standing}`);
 }
 
 // Resources, by hand: a water body of 90 cells is a sea, one of 89 a lake; a gas giant holds nothing; rivers follow fresh water.
@@ -1294,6 +1302,193 @@ assert.equal(viewLevel('s1/b2'), 'body');
   }
   assert.ok(dead >= 3, `some towns die out: ${dead}`);
   assert.ok(wornSeeds >= dead, `worn streets: ${wornSeeds}`);
+}
+
+// Real towns grow at run time: the live view carries the grown grid and the appended homes, and records resolve for them.
+{
+  let grew = 0;
+  let checked = 0;
+  let added = 0;
+  let seededAll = 0;
+  for (const s of ['alpha', 'beta', 'gamma']) {
+    const deltas = new DeltaStore();
+    for (const b of settledBodyIndexes(s, 0)) {
+      for (const st of bodySites(s, 0, b).slice(0, 4)) {
+        const sd = siteLifeSeed(s, 0, b, st.index);
+        assert.equal(sd.growable, true, 'real towns may grow');
+        const l = new SiteLife(s, sd);
+        l.advanceTo(52 * 1000);
+        const seeded = sd.dwellings.length;
+        added += l.dwellingCount - seeded;
+        seededAll += seeded;
+        const view = liveSite(s, genSite(s, 0, b, st.index, deltas), l, deltas);
+        checked++;
+        assert.equal(view.dwellings.length, l.dwellingCount, 'the view lists every dwelling');
+        assert.equal(view.w, l.gridSize);
+        assert.equal(view.cells.length, l.gridSize * l.gridSize);
+        const inside = (r: { x: number; y: number; w: number; h: number }) => r.x >= 0 && r.y >= 0 && r.x + r.w <= view.w && r.y + r.h <= view.h;
+        view.dwellings.forEach((d) => {
+          assert.ok(inside(d), `${st.path} ${d.path} lies inside the grown grid`);
+          assert.ok(d.door.x >= 0 && d.door.x < view.w && d.door.y >= 0 && d.door.y < view.h, 'its door too');
+          for (const e of d.track ?? []) assert.ok(e >> 3 < view.cells.length, 'and its footpath');
+        });
+        view.plots.forEach((p) => assert.ok(inside(p), 'plots move with the grid'));
+        // Two forced growth steps (towns seldom outgrow their grid by themselves): everything moves by the offset and stays inside.
+        const grow = l as unknown as { growGrid(): boolean };
+        const was = l.offset;
+        grow.growGrid();
+        grow.growGrid();
+        const after = liveSite(s, genSite(s, 0, b, st.index, deltas), l, deltas);
+        const shift = l.offset.x - was.x;
+        assert.ok(shift > 0 && after.w === view.w + 2 * shift);
+        after.dwellings.forEach((d, i) => {
+          assert.ok(d.x + d.w <= after.w && d.y + d.h <= after.h, 'after growth too');
+          assert.deepEqual([d.x, d.y], [view.dwellings[i]!.x + shift, view.dwellings[i]!.y + shift], 'a dwelling moves with the grid');
+          for (const e of d.track ?? []) assert.ok((e >> 3) < after.cells.length, 'footpaths too');
+          // an unbuilt building's footpath cell shows what the cell was
+          if (!d.built) for (const e of d.track ?? []) assert.ok(after.cells[e >> 3] === (e & 7) || l.layoutCells[e >> 3] === 1, "a path shows only once its building stands");
+        });
+        after.plots.forEach((p, i) => assert.deepEqual([p.x, p.y], [view.plots[i]!.x + shift, view.plots[i]!.y + shift], 'plots move with the grid'));
+        if (l.dwellingCount > seeded) {
+          grew++;
+          for (const h of after.dwellings.slice(seeded)) {
+            assert.ok(h.door.x >= h.x && h.door.x < h.x + h.w && h.door.y >= h.y && h.door.y < h.y + h.h, 'the door is on the home');
+            for (const p of after.plots) if (p.dwelling >= 0 && !l.isCleared(p.dwelling)) assert.ok(h.x + h.w <= p.x || p.x + p.w <= h.x || h.y + h.h <= p.y || p.y + p.h <= h.y, 'a home the town added keeps off held parcels');
+            if (h.track?.length) {
+              const last = h.track[h.track.length - 1]!;
+              const lx = (last >> 3) % after.w;
+              const ly = Math.floor((last >> 3) / after.w);
+              assert.equal(Math.abs(lx - h.door.x) + Math.abs(ly - h.door.y), 1, 'its footpath starts at its door');
+              if (!h.built) for (const e of h.track) assert.ok(after.cells[e >> 3] === (e & 7) || l.layoutCells[e >> 3] === 1, 'and shows only once it stands');
+            }
+          }
+          const d = view.dwellings[l.dwellingCount - 1]!;
+          assert.equal(d.path, `${st.path}/d${l.dwellingCount - 1}`);
+          const rec = genRecord(s, d.path, deltas, { tick: l.week * TICKS_PER_WEEK, life: l });
+          assert.equal(rec.nameKey, d.nameKey, 'the record names the home as the view does');
+          const who = l.residents(l.dwellingCount - 1)[0];
+          if (who) {
+            const person = genRecord(s, `${d.path}/p${who.local}`, deltas, { tick: l.week * TICKS_PER_WEEK, life: l });
+            assert.equal(person.kind, 'person');
+          }
+          const standing = genRecord(s, st.path, deltas, { tick: l.week * TICKS_PER_WEEK, life: l }).fields.find((f) => f.label === 'dwellings')!.value;
+          assert.equal(standing, view.dwellings.filter((x) => x.built).length, 'the town record counts the grown dwellings');
+        }
+      }
+    }
+  }
+  assert.ok(grew >= 1, `some of ${checked} towns outgrew their layout`);
+  // Towns keep adding homes (a sample of 19 towns over 1,000 years added about 1,100 to 2,300, and 5 of them widened their grid), but stop while
+  // more than 60% of their homes stand empty; with no limit it was about 2,000 to 3,000, and 3 in 4 empty.
+  assert.ok(added >= seededAll * 0.2 && added <= seededAll * 0.7, `homes the towns added: ${added} to ${seededAll}`);
+}
+
+// Ground the grid gains is town, not bare: streets on a lattice and green patches, the old district untouched and the same watched or jumped.
+{
+  const s = 'alpha';
+  const b = settledBodyIndexes(s, 0)[0]!;
+  const st = bodySites(s, 0, b)[0]!;
+  const sd = siteLifeSeed(s, 0, b, st.index);
+  const l = new SiteLife(s, sd);
+  l.advanceTo(52 * 600);
+  for (let i = 0; i < 3; i++) (l as unknown as { growGrid(): boolean }).growGrid(); // towns seldom outgrow their grid by themselves
+  assert.ok(l.gridSize > sd.grid.n);
+  const n = l.gridSize;
+  const { x: ox, y: oy } = l.offset;
+  const cells = l.layoutCells;
+  let road = 0;
+  let upgraded = 0;
+  let green = 0;
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const sx = x - ox;
+      const sy = y - oy;
+      const old = sx >= 0 && sy >= 0 && sx < sd.grid.n && sy < sd.grid.n;
+      if (old) assert.ok(cells[y * n + x] === sd.grid.cells[sy * sd.grid.n + sx] || (cells[y * n + x] === 1 && (sd.grid.cells[sy * sd.grid.n + sx] <= 3 || sd.grid.cells[sy * sd.grid.n + sx] === 5)), 'the old district keeps its cells (a street may be laid over open ground, or a footpath made a road, to join the new ones)');
+      if (old && cells[y * n + x] === 1 && sd.grid.cells[sy * sd.grid.n + sx] === 5) upgraded++;
+      else if (cells[y * n + x] === 1) road++;
+      else if (cells[y * n + x] === 3) green++;
+    }
+  }
+  assert.ok(road > 150 && green > 100, `new ground has streets and green: ${road} / ${green}`);
+  assert.ok(upgraded > 0, 'a footpath that joins streets becomes a road');
+  // Every street that reaches the new ground is joined to the rest (8-way), however far out.
+  {
+    const comp = new Int32Array(n * n).fill(-1);
+    let comps = 0;
+    let ringComps = 0;
+    for (let k = 0; k < n * n; k++) {
+      if (comp[k] >= 0 || (cells[k] !== 1 && cells[k] !== 2 && cells[k] !== 5)) continue;
+      let ring = false;
+      const stack = [k];
+      comp[k] = comps;
+      while (stack.length) {
+        const c = stack.pop()!;
+        const cx = c % n;
+        const cy = (c - cx) / n;
+        if (cx - ox < 0 || cy - oy < 0 || cx - ox >= sd.grid.n || cy - oy >= sd.grid.n) ring = true;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const xx = cx + dx;
+          const yy = cy + dy;
+          if (xx < 0 || yy < 0 || xx >= n || yy >= n) continue;
+          const q = yy * n + xx;
+          if (comp[q] < 0 && (cells[q] === 1 || cells[q] === 2 || cells[q] === 5)) (comp[q] = comps, stack.push(q));
+        }
+      }
+      if (ring) ringComps++;
+      comps++;
+    }
+    assert.equal(ringComps, 1, "the streets of the new ground form one network");
+  }
+  // Streets thin out toward the edge and are not a regular lattice: the near ring is denser than the far one, and rows differ.
+  const density = (lo: number, hi: number) => {
+    let r = 0;
+    let c = 0;
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        const d = Math.hypot(x - n / 2, y - n / 2);
+        const old = x - ox >= 0 && y - oy >= 0 && x - ox < sd.grid.n && y - oy < sd.grid.n;
+        if (old || d < lo || d >= hi || cells[y * n + x] === 4) continue;
+        c++;
+        if (cells[y * n + x] === 1) r++;
+      }
+    }
+    return r / c;
+  };
+  assert.ok(density(34, 44) > density(52, 70) * 1.15, `streets thin out: ${density(34, 44)} vs ${density(52, 70)}`);
+  // A river that reaches the old edge runs on through the ring (wandering), so the ring holds water.
+  let reaches = 0;
+  for (let i = 0; i < sd.grid.n; i++) for (const [x, y] of [[i, 0], [i, sd.grid.n - 1], [0, i], [sd.grid.n - 1, i]] as const) if (sd.grid.cells[y * sd.grid.n + x] === 4) reaches++;
+  let ringWater = 0;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (cells[y * n + x] === 4 && (x < ox || y < oy || x >= ox + sd.grid.n || y >= oy + sd.grid.n)) ringWater++;
+  assert.ok(reaches > 0 && ringWater >= reaches, `the river continues into the new ring: ${ringWater} cells for ${reaches} at the edge`);
+}
+
+// A grown town is the same watched or jumped, and growing never touches the shared seed.
+{
+  const s = 'gamma';
+  const b = settledBodyIndexes(s, 0)[0]!;
+  const st = bodySites(s, 0, b)[0]!;
+  const sd = siteLifeSeed(s, 0, b, st.index);
+  const seedCells = sd.grid.cells.slice();
+  const grow = (l: SiteLife) => (l as unknown as { growGrid(): boolean }).growGrid();
+  const watched = new SiteLife(s, sd);
+  const jumped = new SiteLife(s, sd);
+  for (let y = 1; y <= 300; y++) watched.advanceTo(52 * y);
+  jumped.advanceTo(52 * 300);
+  grow(watched);
+  grow(jumped);
+  for (let y = 301; y <= 700; y++) watched.advanceTo(52 * y);
+  jumped.advanceTo(52 * 700);
+  assert.equal(watched.gridSize, jumped.gridSize);
+  assert.equal(watched.dwellingCount, jumped.dwellingCount, 'the same homes were added');
+  assert.deepEqual(Array.from(watched.layoutCells), Array.from(jumped.layoutCells), 'the same streets');
+  assert.deepEqual(Array.from(watched.wear), Array.from(jumped.wear), 'the same wear');
+  for (let i = sd.dwellings.length; i < watched.dwellingCount; i++) {
+    assert.deepEqual(watched.rectOf(i), jumped.rectOf(i));
+    assert.deepEqual(watched.accessOf(i), jumped.accessOf(i), 'the same door and footpath');
+  }
+  assert.deepEqual(Array.from(sd.grid.cells), Array.from(seedCells), 'the shared seed is never written to');
 }
 
 console.log(`ok: walked ${walked} settlements across 18 systems; names: ${names.join(' / ')}`);

@@ -6,7 +6,7 @@ import { parsePath } from './path';
 import { layoutTown } from './town';
 import { seaLanes, type FishingGround, type SeaRoute } from './sea';
 import { appeal, buildResources, canFound, foodSupply, riverChance, surroundings, WATER_SALT, type Resources, type Surroundings } from './resources';
-import { SiteLife, ageAt, capacityOf, districtSeries, livingSeries, meanAgeSeries, visibleCells, type Person, type SiteLifeSeed } from './life';
+import { SiteLife, ageAt, applyLife, capacityOf, districtSeries, livingSeries, meanAgeSeries, visibleCells, type Person, type SiteLifeSeed } from './life';
 import type { DeltaStore } from './deltas';
 import type {
   AnomalySummary,
@@ -610,9 +610,23 @@ export function familyOrder(here: Person[], tick: number): { p: Person; indent: 
   return out;
 }
 
+/** The district with its running life applied: homes grown, dwellings and ground the town added since layout. */
+export function liveSite(seed: string, view: SiteView, life: SiteLife, deltas: DeltaStore): SiteView {
+  return applyLife(view, life, (path) => ({ nameKey: rngFor(seed, path, 'family').u32(), inspected: deltas.isInspected(path) }));
+}
+
+/** A dwelling by index, including the ones the town added after layout (those exist only in `life`). */
+function dwellingOf(seed: string, sc: SiteCore, life: SiteLife, i: number): { path: string; nameKey: number; kind: DwellingKind } | undefined {
+  const d = sc.dwellings[i];
+  if (d) return d;
+  if (i < 0 || i >= life.dwellingCount) return undefined;
+  const path = `${sc.site.path}/d${i}`;
+  return { path, nameKey: rngFor(seed, path, 'family').u32(), kind: life.kindOf(i) as DwellingKind };
+}
+
 /** A person as a link in a record: their path names the dwelling they started in, wherever they live now. */
-function personLink(seed: string, sc: SiteCore, p: Person, tick: number): RecordChild {
-  const origin = sc.dwellings[p.origin]!;
+function personLink(seed: string, sc: SiteCore, life: SiteLife, p: Person, tick: number): RecordChild {
+  const origin = dwellingOf(seed, sc, life, p.origin)!;
   const path = `${origin.path}/p${p.local}`;
   return {
     path,
@@ -641,6 +655,7 @@ export function siteLifeSeed(seed: string, si: number, bi: number, ti: number): 
     })),
     grid: { n: SITE_N, cells: sc.cells },
     food: foodSupply(sc.around),
+    growable: true,
   };
 }
 
@@ -734,7 +749,9 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
       const dw = life ? districtSeries(life, 'dwellings') : [];
       const births = life ? districtSeries(life, 'births') : [];
       const deaths = life ? districtSeries(life, 'deaths') : [];
-      const standing = sc.dwellings.filter((d, i) => (life ? life.isBuilt(i) : d.builtWeek === 0)).length;
+      const standing = life
+        ? Array.from({ length: life.dwellingCount }, (_, i) => i).filter((i) => life.isBuilt(i)).length
+        : sc.dwellings.filter((d) => d.builtWeek === 0).length;
       return {
         path,
         kind: 'site',
@@ -774,17 +791,17 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
     }
     case 'd': {
       const sc = siteCore(seed, si, bi, ti);
-      const d = sc.dwellings[last.i];
+      const L = live?.life ?? tick0Life(seed, si, bi, ti); // without a running district: the people as they start
+      const d = dwellingOf(seed, sc, L, last.i);
       if (!d) throw new Error(`No dwelling ${last.i}`);
       const r = rngFor(seed, d.path, 'record');
       const condition = r.int(20, 100);
       const rich = d.kind === 'mill' ? sc.around.timber : d.kind === 'quarry' ? sc.around.stone : d.kind === 'dock' ? sc.around.fish : d.kind === 'farm' ? sc.around.soil : d.kind === 'mine' ? sc.around.stone : 3; // a workplace yields what the land gives it
       const output = Math.round(r.range(0, 100) * (d.kind === 'shop' ? 0.7 : d.kind === 'home' || d.kind === 'hall' ? 0.3 : 0.4 + 0.6 * (rich / 3)));
       const life = live?.life ?? null;
-      const L = life ?? tick0Life(seed, si, bi, ti); // without a running district: the people as they start
       const T = life ? live!.tick : 0;
       const children: RecordChild[] = familyOrder(L.residents(last.i), T).map(({ p, indent, partner }) => ({
-        ...personLink(seed, sc, p, T),
+        ...personLink(seed, sc, L, p, T),
         indent,
         ...(partner ? { partner } : {}),
       }));
@@ -809,12 +826,12 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
     case 'p': {
       const sc = siteCore(seed, si, bi, ti);
       const dwelling = segs.find((s) => s.k === 'd');
-      const d = dwelling ? sc.dwellings[dwelling.i] : undefined;
+      // Without a running district, the person as they start (tick 0), from the same model.
+      const L = live?.life ?? tick0Life(seed, si, bi, ti);
+      const d = dwelling ? dwellingOf(seed, sc, L, dwelling.i) : undefined;
       if (!d) throw new Error('Person without dwelling');
       const r = rngFor(seed, path, 'record');
       r.int(1, 82); // the draw that used to give the age; kept so traits and mood do not shift
-      // Without a running district, the person as they start (tick 0), from the same model.
-      const L = live?.life ?? tick0Life(seed, si, bi, ti);
       const T = live?.life ? live.tick : 0;
       const me = L.person(dwelling!.i, last.i);
       const age = me ? ageAt(me, T) : 0;
@@ -822,12 +839,12 @@ export function genRecord(seed: string, path: string, deltas: DeltaStore, live?:
       const rolePick = r.pick(ROLES);
       const wealthRoll = r.int(0, 100);
       const role = age < 14 ? 'child' : age > 66 ? 'elder' : rolePick;
-      const people = (ps: Person[]): RecordChild[] => ps.map((p) => personLink(seed, sc, p, T));
+      const people = (ps: Person[]): RecordChild[] => ps.map((p) => personLink(seed, sc, L, p, T));
       const links: RecordLinks[] = [];
       if (me) {
         const group = (label: string, items: RecordChild[]) => items.length > 0 && links.push({ label, items });
         if (me.deathTick === null) {
-          const home = sc.dwellings[me.residence]!;
+          const home = dwellingOf(seed, sc, L, me.residence)!;
           group('residence', [{ path: home.path, nameKey: home.nameKey, nameKind: 'dwelling', tag: home.kind }]);
         }
         group('mother', people(me.mother === null ? [] : [L.people[me.mother]!]));
