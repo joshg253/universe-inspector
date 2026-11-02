@@ -102,7 +102,6 @@ const WORKPLACE_PER_WEEK = 0.04;
 /** People the land feeds without a farm (farmsteads, gardens, foraging), and how many each standing farm adds. Past that, farms come first. */
 const FOOD_BASE = 40;
 const FARM_FEEDS = 40;
-
 export type Sex = 'f' | 'm';
 
 export interface Person {
@@ -1087,10 +1086,17 @@ export class SiteLife {
     const season = seasonOf(base, week);
     this.advanceAge(week);
     const age = this.ageAt(week);
-    // Crowding: a district that has outgrown its starting population births and receives fewer; one that has shrunk,
-    // more. Keeps long runs from running away to the building cap or dying out.
+    // Food: the land feeds a base number plus so many per standing farm, and only as many farms count as the soil around has room
+    // for, so a hungry town cannot farm its way to any size.
+    let farmed = 0;
+    for (let d = 0; d < this.kinds.length; d++) if (this.kinds[d] === 'farm' && this.isBuilt(d, week)) farmed++;
+    const farmRoom = this.around?.soil ?? Infinity;
+    const fed = FOOD_BASE + FARM_FEEDS * Math.min(farmed, farmRoom);
+    // Crowding: a district that has outgrown its size (the start, or what it is fed if more) births and receives fewer; one that
+    // has shrunk, more. Keeps long runs from running away to the building cap or dying out.
     const fortune = fortuneOf(base, week);
-    const crowd = Math.max(0.2, Math.min(1.3, 1 + (this.initial - this.living) / Math.max(1, this.initial))) * fortune * this.feed;
+    const size = Math.max(this.initial, fed);
+    const crowd = Math.max(0.2, Math.min(1.3, 1 + (size - this.living) / Math.max(1, size))) * fortune * this.feed;
 
     // Deaths.
     const home: Person[][] = this.kinds.map(() => []);
@@ -1240,9 +1246,7 @@ export class SiteLife {
       else if (this.kinds[d] === 'home' && this.boxedIn[d] && g.length >= this.capacity(d)) pressed++;
     });
     // Food: a town the land cannot feed wants a farm before anything but a home.
-    let farms = 0;
-    for (let d = 0; d < this.kinds.length; d++) if (this.kinds[d] === 'farm' && this.isBuilt(d, week)) farms++;
-    const hungry = this.living > FOOD_BASE + FARM_FEEDS * farms;
+    const hungry = this.living > fed && farmed < farmRoom; // a farm past the soil's room would feed no one
     let startedNow = false;
     // A town with too many homes standing empty appends no more.
     const roomy = emptyHomes > standingHomes * EMPTY_SHARE;

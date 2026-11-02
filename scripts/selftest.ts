@@ -355,6 +355,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
       let deep = 0;
       for (const p of L.people) {
         if (p.mother === null && p.father === null && !L.people.some((q) => q.mother === p.id || q.father === p.id)) continue;
+        if (p.origin >= data.dwellings.length) continue; // a home appended at run time has no seeded path
         const path = `${data.dwellings[p.origin]!.path}/p${p.local}`;
         const r = genRecord(seed, path, new DeltaStore(), { tick: old.tick, life: L });
         if (!r.tree) continue;
@@ -378,6 +379,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
         const kidIds = new Set(rows.offspring?.map((c) => idOf(c).id));
         for (const g of rows.grandchildren ?? []) {
           const gc = idOf(g);
+          if (!gc) continue; // lives in a home appended at run time
           assert.ok(kidIds.has(gc.mother ?? -1) || kidIds.has(gc.father ?? -1), 'a grandchild has one of my children as a parent');
         }
         if (rows.grandchildren) deep++;
@@ -479,7 +481,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
     assert.ok(arrivedKidsMoved > 0, 'children who arrived with a household can leave home and found their own');
         // Towns that may build their own homes also draw in households, so the old 1.6 ceiling (set when the plot list was fixed) is 3: with few homes
         // growing in place, a full town builds more of them instead.
-        assert.ok(end > start * 0.6 && end < start * 3, `population after a century: ${start} -> ${end}`);
+        assert.ok(end > start * 0.6 && end < start * 4, `population after a century: ${start} -> ${end}`);
   }
 
   // Plots: parcels never overlap, never lie on the plaza or water, each building stands inside its own plot, and the plot
@@ -1320,6 +1322,20 @@ assert.equal(viewLevel('s1/b2'), 'body');
     assert.ok(kindsOf(none).every((x) => x === 'home'), 'with no land given, appended buildings are homes');
   }
   {
+    // The people follow the land: more soil to farm lets a district grow past its start; none holds it near the start.
+    let poor = 0;
+    let rich = 0;
+    for (let k = 0; k < 6; k++) {
+      const a = new SiteLife(`feed${k}`, packed({ soil: 0, timber: 0, stone: 0 }));
+      const b = new SiteLife(`feed${k}`, packed({ soil: 3, timber: 0, stone: 0 }));
+      a.advanceTo(52 * 300);
+      b.advanceTo(52 * 300);
+      poor += a.living;
+      rich += b.living;
+    }
+    assert.ok(rich > poor * 1.15, `richer soil (3, the most real data gives) feeds more people: ${poor} against ${rich}`);
+  }
+  {
     const pick = (hungry: boolean, land: { soil: number; timber: number; stone: number }) => {
       const l = new SiteLife('split', packed(land)) as unknown as { appendedKind(week: number, age: number, hungry: boolean): string };
       const n: Record<string, number> = {};
@@ -1476,9 +1492,9 @@ assert.equal(viewLevel('s1/b2'), 'body');
     }
   }
   assert.ok(grew >= 1, `some of ${checked} towns outgrew their layout`);
-  // Towns keep adding buildings (a sample of 19 towns over 1,000 years added about 1,400 to 1,700 seeded, as few homes grow in place), but stop while
+  // Towns keep adding buildings (a sample of 19 towns over 1,000 years added about 1.6 times the seeded buildings, as the people follow the land), but stop while
   // more than 60% of their homes stand empty; with no limit it was about 2,000 to 3,000, and 3 in 4 empty.
-  assert.ok(added >= seededAll * 0.2 && added <= seededAll * 0.9, `buildings the towns added: ${added} to ${seededAll}`);
+  assert.ok(added >= seededAll * 0.2 && added <= seededAll * 1.8, `buildings the towns added: ${added} to ${seededAll}`);
 }
 
 // Ground the grid gains is town, not bare: streets on a lattice and green patches, the old district untouched and the same watched or jumped.
