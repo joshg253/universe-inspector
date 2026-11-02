@@ -1012,6 +1012,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
           assert.equal(jump.builtWeekOf(i), step.builtWeekOf(i), 'late look matches the build weeks');
           const need = UNLOCK_AGE[kind] ?? 0;
           const w = step.builtWeekOf(i);
+          if (i >= sd.dwellings.length) assert.ok(w > 0, `appended ${kind} has a build week`); // an appended building is never standing from the start
           if (need > 0 && w > 0) {
             late++;
             assert.ok(step.ageAt(w) >= need, `${kind} finished in age ${step.ageAt(w)}, needs ${need}`);
