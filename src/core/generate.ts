@@ -655,6 +655,7 @@ export function siteLifeSeed(seed: string, si: number, bi: number, ti: number): 
     })),
     grid: { n: SITE_N, cells: sc.cells },
     food: foodSupply(sc.around),
+    around: { soil: sc.around.soil, timber: sc.around.timber, stone: sc.around.stone },
     growable: true,
   };
 }
