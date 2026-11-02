@@ -215,9 +215,9 @@ assert.equal(viewLevel('s1/b2'), 'body');
   // Everyone lives somewhere real, and no building is over capacity once settled.
   const occupancy = new Map<number, number>();
   for (const p of stepped.people) {
-    assert.ok(p.residence >= 0 && p.residence < data.dwellings.length);
+    assert.ok(p.residence >= 0 && p.residence < stepped.dwellingCount);
     if (p.deathTick === null) occupancy.set(p.residence, (occupancy.get(p.residence) ?? 0) + 1);
-    if (p.moves.length > 0) assert.equal(data.dwellings[p.residence]!.kind === 'home' || p.residence === p.origin, true);
+    if (p.moves.length > 0) assert.equal(stepped.kindOf(p.residence) === 'home' || p.residence === p.origin, true);
   }
   assert.ok(Math.max(...occupancy.values()) <= 10, 'no dwelling holds more than ten people');
   for (const [di, n] of occupancy) assert.ok(n <= stepped.capacity(di), 'no dwelling holds more than its footprint allows');
@@ -369,7 +369,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
         assert.equal(kids, L.people.filter((q) => q.mother === p.id || q.father === p.id).length, 'children match the record');
         assert.ok((rows.parents ?? []).length <= 2);
         // Every grandparent is a parent of a parent, and every grandchild has one of the person's children as a parent.
-        const idOf = (c: { path: string }) => L.people.find((q) => `${data.dwellings[q.origin]!.path}/p${q.local}` === c.path)!;
+        const idOf = (c: { path: string }) => L.people.find((q) => `${data.dwellings[q.origin]?.path}/p${q.local}` === c.path)!;
         const mine = new Set(rows.parents?.map((c) => idOf(c).id));
         for (const g of rows.grandparents ?? []) {
           const gp = idOf(g);
@@ -477,8 +477,9 @@ assert.equal(viewLevel('s1/b2'), 'body');
     assert.ok(vacant / homes < 0.55, `vacancy after a century: ${vacant}/${homes}`);
     assert.ok(arrivedKids > 0, 'households with children arrive');
     assert.ok(arrivedKidsMoved > 0, 'children who arrived with a household can leave home and found their own');
-        // Towns that may build their own homes also draw in households, so the old 1.6 ceiling (set when the plot list was fixed) is 2.
-        assert.ok(end > start * 0.6 && end < start * 2, `population after a century: ${start} -> ${end}`);
+        // Towns that may build their own homes also draw in households, so the old 1.6 ceiling (set when the plot list was fixed) is 3: with few homes
+        // growing in place, a full town builds more of them instead.
+        assert.ok(end > start * 0.6 && end < start * 3, `population after a century: ${start} -> ${end}`);
   }
 
   // Plots: parcels never overlap, never lie on the plaza or water, each building stands inside its own plot, and the plot
@@ -589,7 +590,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
     for (const s of ['alpha', 'beta', 'gamma']) {
       for (const b of settledBodyIndexes(s, 0)) {
         for (const st of bodySites(s, 0, b)) {
-          const sd = siteLifeSeed(s, 0, b, st.index);
+          const sd = { ...siteLifeSeed(s, 0, b, st.index), growable: false }; // coordinates here are the seed's: a grown grid shifts them
           const l = new SiteLife(s, sd);
           sd.dwellings.forEach((dw, i) => {
             if (dw.kind === 'home' || dw.kind === 'shop') assert.ok(dw.residents <= l.capacity(i), 'a home starts within its capacity');
@@ -658,7 +659,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
         }
       }
     }
-    // A full home grows only after 13 full weeks in a row: a tiny full home, many seeds, none by week 12, some by 14.
+    // A full home grows only after 52 full weeks in a row, and only about one home in seven does: a tiny full home, many seeds, none by week 51, some by 53.
     {
       const tiny: SiteLifeSeed = {
         path: 's0/b0/t0',
@@ -668,14 +669,17 @@ assert.equal(viewLevel('s1/b2'), 'body');
       let early = 0;
       let late = 0;
       let finished = 0;
-      for (let k = 0; k < 40; k++) {
+      let pressed = 0;
+      for (let k = 0; k < 200; k++) {
         const l = new SiteLife(`tiny${k}`, tiny);
-        l.advanceTo(12);
-        if (l.extension(0).length > 0) early++;
         l.advanceTo(14);
+        if ((l as unknown as { boxedIn: boolean[] }).boxedIn[0]) pressed++;
+        l.advanceTo(51);
+        if (l.extension(0).length > 0) early++;
+        l.advanceTo(53);
         if (l.extension(0).length > 0) late++;
         // A home that took a cell finishes the notch of its outline within a few weeks, full or not: 2x1 becomes 2x2.
-        l.advanceTo(19);
+        l.advanceTo(58);
         if (l.extension(0).length >= 2) {
           const xs = [2, 3, ...l.extension(0).map((c) => c.x)];
           const ys = [2, ...l.extension(0).map((c) => c.y)];
@@ -683,8 +687,9 @@ assert.equal(viewLevel('s1/b2'), 'body');
         }
       }
       assert.ok(finished > late / 2, `a grown home fills the notch in its outline (${finished} of ${late})`);
-      assert.equal(early, 0, 'no home grows before it has been full for 13 weeks');
-      assert.ok(late > 10, `a full home grows after 13 weeks (${late} of 40)`);
+      assert.ok(pressed > 150, `a full home that will not grow counts as pressed after 13 weeks, so the town builds (${pressed} of 200)`);
+      assert.equal(early, 0, 'no home grows before it has been full for 52 weeks');
+      assert.ok(late > 10 && late < 70, `a few full homes grow after 52 weeks (${late} of 200)`);
     }
     assert.ok(grew > 0, `some homes grow over a century (${grew} of ${homes})`);
     assert.ok(bent > 0, 'grown homes are not all rectangles');
@@ -1241,6 +1246,32 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.ok(wider > 3, `a full grid grows outward: ${wider}/12`);
 }
 
+// Homes stay compact and few of them grow: no L or S shapes snaking between buildings, and well under a fifth of homes take a cell.
+{
+  let homes = 0;
+  let grown = 0;
+  for (const s of ['alpha', 'beta']) {
+    for (const b of settledBodyIndexes(s, 0).slice(0, 4)) {
+      for (const st of bodySites(s, 0, b).slice(0, 3)) {
+        const l = new SiteLife(s, siteLifeSeed(s, 0, b, st.index));
+        l.advanceTo(52 * 600);
+        const view = liveSite(s, genSite(s, 0, b, st.index, new DeltaStore()), l, new DeltaStore());
+        for (const d of view.dwellings) {
+          if (d.kind !== 'home') continue;
+          homes++;
+          if (!d.extra?.length) continue;
+          grown++;
+          const xs = [d.x, d.x + d.w - 1, ...(d.extra ?? []).map((c) => c.x)];
+          const ys = [d.y, d.y + d.h - 1, ...(d.extra ?? []).map((c) => c.y)];
+          const box = (Math.max(...xs) - Math.min(...xs) + 1) * (Math.max(...ys) - Math.min(...ys) + 1);
+          assert.ok((d.w * d.h + d.extra!.length) / box >= 0.75, `${s} b${b} t${st.index}: a grown home fills at least 3/4 of its bounding box`);
+        }
+      }
+    }
+  }
+  assert.ok(grown > 0 && grown < homes * 0.15, `few homes grow: ${grown}/${homes}`);
+}
+
 // Decay: an empty building goes derelict, then ruin, then is cleared (its ground freed); a street nobody lives near wears
 // road -> track -> green, and comes back if people return. Everything is a function of the week.
 {
@@ -1378,9 +1409,9 @@ assert.equal(viewLevel('s1/b2'), 'body');
     }
   }
   assert.ok(grew >= 1, `some of ${checked} towns outgrew their layout`);
-  // Towns keep adding homes (a sample of 19 towns over 1,000 years added about 1,100 to 2,300, and 5 of them widened their grid), but stop while
+  // Towns keep adding buildings (a sample of 19 towns over 1,000 years added about 1,400 to 1,700 seeded, as few homes grow in place), but stop while
   // more than 60% of their homes stand empty; with no limit it was about 2,000 to 3,000, and 3 in 4 empty.
-  assert.ok(added >= seededAll * 0.2 && added <= seededAll * 0.7, `homes the towns added: ${added} to ${seededAll}`);
+  assert.ok(added >= seededAll * 0.2 && added <= seededAll * 0.9, `buildings the towns added: ${added} to ${seededAll}`);
 }
 
 // Ground the grid gains is town, not bare: streets on a lattice and green patches, the old district untouched and the same watched or jumped.

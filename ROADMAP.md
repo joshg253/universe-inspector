@@ -56,7 +56,7 @@ progression through ages, all deterministic from the seed. You watch and inspect
       stay the universal clock (ages, speed ladder, `core/time.ts`); a planet's local day and year are for light,
       local time and seasons only. Calendars with month names are a pack concern.
 - [~] **Housing capacity and growth:** done: capacity from the footprint (2 + area/2, cap 10), a full home pushes its
-      grown children out faster, and a home full for a quarter takes one adjacent free cell (never road, water or beside
+      grown children out faster, and a home full for a year (about one in seven ever does) takes one adjacent free cell, keeping 3/4 of its bounding box (never road, water or beside
       another building; no pockets; a notch in the outline first, else the most square result; a grown home finishes
       its notches; decided in the fold; the map shows it). Left: a couple (not only grown children) pushed out by
       crowding; new buildings come after, under founding dates below.

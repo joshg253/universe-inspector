@@ -23,8 +23,14 @@ export function capacityOf(cells: number): number {
 }
 /** A grown child still at home in a full house moves out this many times faster. */
 const CROWDED_LEAVE = 4;
-/** A home full for this many weeks in a row takes one more cell of free ground beside it. */
-const EXPAND_AFTER_WEEKS = 13;
+/** A home full for this many weeks in a row takes one more cell of free ground beside it, if it is one of the few that ever grow. */
+const EXPAND_AFTER_WEEKS = 52;
+/** A full home that will not grow counts as pressed (the town needs another) after this many weeks. */
+const PRESSED_AFTER_WEEKS = 13;
+/** The share of homes that ever take a cell: building growth is rare, the rest stay as built and a full town builds more homes instead. */
+const EXPAND_SHARE = 0.15;
+/** A home stays compact: a cell is taken only if the home then fills at least this share of its bounding box (no L or S shapes snaking between buildings). */
+const MIN_FILL = 0.75;
 /** A home that took a cell finishes any notch in its outline at one cell per this many weeks, full or not. */
 const FINISH_EVERY_WEEKS = 4;
 /** The largest a home grows: 16 cells, where capacity reaches its cap of 10. */
@@ -1008,6 +1014,7 @@ export class SiteLife {
       const y = Math.floor(k / n);
       const w = Math.max(x1, x) - Math.min(x0, x) + 1;
       const h = Math.max(y1, y) - Math.min(y0, y) + 1;
+      if ((mine.size + 1) / (w * h) < MIN_FILL) continue;
       ranked.push({
         k,
         g: w * h - (x1 - x0 + 1) * (y1 - y0 + 1),
@@ -1187,8 +1194,10 @@ export class SiteLife {
       // One cell a week at most: a home that finished a notch this week does not also take a full-home cell.
       if (this.finish[d]! > 0 && --this.finish[d]! === 0 && this.expand(d, week, true)) return;
       if (g.length < this.capacity(d)) this.fullWeeks[d] = 0;
-      else if (!this.boxedIn[d] && ++this.fullWeeks[d]! >= EXPAND_AFTER_WEEKS) {
-        if (this.expand(d, week)) this.fullWeeks[d] = 0;
+      else if (!this.boxedIn[d]) {
+        const grows = roll(this.base, 0, d, 36) < EXPAND_SHARE;
+        if (++this.fullWeeks[d]! < (grows ? EXPAND_AFTER_WEEKS : PRESSED_AFTER_WEEKS)) return;
+        if (grows && this.expand(d, week)) this.fullWeeks[d] = 0;
         else this.boxedIn[d] = true;
       }
     });
