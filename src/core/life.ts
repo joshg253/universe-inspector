@@ -73,6 +73,9 @@ const FOUND_MAX_AGE = 35;
 const HOUSEHOLD_PER_VACANT_WEEK = 0.012 / 52;
 /** Chance per week, for each full home that cannot grow, that a reserve plot is started. */
 const BUILD_PER_PRESSED_WEEK = 0.3 / 52;
+const WORK_PER_LAND = 0.05; // chance an appended building is a workplace, per point of the land's soil + timber + stone (0..9), at most WORK_MAX
+const WORK_MAX = 0.35;
+const HUNGRY_FARM = 0.7; // a hungry town on farmland makes its next appended building a farm this often
 
 /** The age ladder: rungs 0..AGE_TOP, no skipping. Packs name them; core knows only the number. */
 export const AGE_TOP = 5;
@@ -251,6 +254,8 @@ export interface SiteLifeSeed {
   grid: { n: number; cells: Uint8Array };
   /** How well the surroundings feed the town, 0..1 (absent: plenty). Poor land slows births, arrivals and new building. */
   food?: number;
+  /** What the land around offers, 0..3 each (absent: appended buildings are homes). Appended workplaces come from it. */
+  around?: { soil: number; timber: number; stone: number };
   /** Whether the town may append dwellings and grow its grid when it runs out of plots (absent: it may not). */
   growable?: boolean;
   /** The grid's side cap when growable (absent: MAX_GRID). */
@@ -272,6 +277,7 @@ export class SiteLife {
   private readonly base: number;
   /** 0.55..1: how freely the district grows given its food (see `SiteLifeSeed.food`). */
   private readonly feed: number;
+  private readonly around: SiteLifeSeed['around'];
   /** The rung the settlement starts at (from the seed). */
   private readonly ageStart: number;
   /** The week each rung above the start was reached, in order. */
@@ -329,6 +335,7 @@ export class SiteLife {
     this.grid = { n: data.grid.n, cells: data.grid.cells.slice() }; // a copy: the seed is shared, and streets are laid on this one
     this.growable = data.growable ?? false;
     this.maxGrid = data.maxGrid ?? MAX_GRID;
+    this.around = data.around;
     this.feed = 0.55 + 0.45 * (data.food ?? 1);
     this.occ = new Uint8Array(data.grid.n * data.grid.n);
     this.origin = data.dwellings.map((d) => ({ x: d.x, y: d.y, w: d.w, h: d.h }));
@@ -844,14 +851,17 @@ export class SiteLife {
     return best;
   }
 
-  /** Start a new home on open ground (growing the grid if there is none), finished some weeks on. Returns whether one was started. */
-  private appendHome(week: number): boolean {
+  /**
+   * Start a new building on open ground (growing the grid if there is none), finished some weeks on. Mostly a home; where the land offers
+   * soil, timber or stone, sometimes a farm, mill or quarry (a hungry town on farmland leans to a farm). Returns whether one was started.
+   */
+  private appendHome(week: number, age: number, hungry: boolean): boolean {
     const w = roll(this.base, week, 0, 31) < 0.5 ? 2 : 3;
     const h = roll(this.base, week, 1, 31) < 0.6 ? 2 : 3;
     let at = this.openSpot(w, h);
     while (!at && this.growGrid()) at = this.openSpot(w, h);
     if (!at) return false;
-    this.kinds.push('home');
+    this.kinds.push(this.appendedKind(week, age, hungry));
     this.area.push(w * h);
     this.origin.push({ x: at.x, y: at.y, w, h });
     this.plot.push(undefined);
@@ -870,8 +880,19 @@ export class SiteLife {
     return true;
   }
 
+  private appendedKind(week: number, age: number, hungry: boolean): string {
+    const land = this.around;
+    if (!land) return 'home';
+    const total = land.soil + land.timber + land.stone;
+    if (hungry && land.soil > 0 && roll(this.base, week, 0, 37) < HUNGRY_FARM) return (UNLOCK_AGE.farm ?? 0) <= age ? 'farm' : 'home';
+    if (total === 0 || roll(this.base, week, 1, 37) >= Math.min(WORK_MAX, WORK_PER_LAND * total)) return 'home';
+    let at = roll(this.base, week, 2, 37) * total;
+    const kind = (at -= land.soil) < 0 ? 'farm' : (at -= land.timber) < 0 ? 'mill' : 'quarry';
+    return (UNLOCK_AGE[kind] ?? 0) <= age ? kind : 'home';
+  }
+
   /**
-   * Give a new home its door and a footpath to the nearest street, path or plaza over open ground (breadth first from the cells beside
+   * Give a new building its door and a footpath to the nearest street, path or plaza over open ground (breadth first from the cells beside
    * it, fixed side and cell order). With none reachable the door faces south and there is no path.
    */
   private connect(dwelling: number, r: { x: number; y: number; w: number; h: number }): void {
@@ -1236,7 +1257,7 @@ export class SiteLife {
       if (pick >= 0) this.started[pick] = true;
       startedNow = pick >= 0;
       // No reserve left: a growing town appends a home (and widens its grid if the ground is used up).
-      if (pick < 0 && !farmWaits && !roomy && this.growable) startedNow = this.appendHome(week);
+      if (pick < 0 && !farmWaits && !roomy && this.growable) startedNow = this.appendHome(week, age, hungry);
     }
 
     // A workplace whose age has come is started now and then, one at a time. A town the land cannot feed starts a farm first;
