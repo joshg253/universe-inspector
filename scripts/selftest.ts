@@ -985,7 +985,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
         let prev = start;
         for (let w = 1; w <= 52 * 200; w++) {
           const living = step.living; // what the town had when the week began
-          const standing = (f: (k: string) => boolean) => sd.dwellings.filter((d, i) => f(d.kind) && step.isBuilt(i, w)).length;
+          const standing = (f: (k: string) => boolean) => Array.from({ length: step.dwellingCount }, (_, i) => i).filter((i) => f(step.kindOf(i)) && step.isBuilt(i, w)).length; // appended workplaces count too
           const [shops, works, workplaces] = [
             standing((k) => k === 'shop'),
             standing((k) => k === 'works'),
@@ -1007,13 +1007,14 @@ assert.equal(viewLevel('s1/b2'), 'body');
         jump.advanceTo(52 * 200);
         assert.equal(jump.ageAt(52 * 200), step.ageAt(52 * 200), 'late look matches the rung');
         for (let w = 0; w <= 52 * 200; w += 520) assert.equal(jump.ageAt(w), step.ageAt(w), 'late look matches history');
-        sd.dwellings.forEach((d, i) => {
+        assert.equal(jump.dwellingCount, step.dwellingCount, 'late look matches the dwelling count');
+        Array.from({ length: step.dwellingCount }, (_, i) => ({ i, kind: step.kindOf(i) })).forEach(({ i, kind }) => {
           assert.equal(jump.builtWeekOf(i), step.builtWeekOf(i), 'late look matches the build weeks');
-          const need = UNLOCK_AGE[d.kind] ?? 0;
+          const need = UNLOCK_AGE[kind] ?? 0;
           const w = step.builtWeekOf(i);
           if (need > 0 && w > 0) {
             late++;
-            assert.ok(step.ageAt(w) >= need, `${d.kind} finished in age ${step.ageAt(w)}, needs ${need}`);
+            assert.ok(step.ageAt(w) >= need, `${kind} finished in age ${step.ageAt(w)}, needs ${need}`);
           }
         });
       }
@@ -1241,6 +1242,56 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.ok(wider > 3, `a full grid grows outward: ${wider}/12`);
 }
 
+// Appended buildings come from the land: soil gives farms, timber mills, stone quarries; with nothing around they are homes.
+{
+  const packed = (around?: { soil: number; timber: number; stone: number }): SiteLifeSeed => ({
+    path: 's0/b0/t0',
+    dwellings: Array.from({ length: 9 }, (_, i) => ({ path: `d${i}`, kind: 'home', residents: 4, x: 1 + 4 * (i % 3), y: 1 + 4 * Math.floor(i / 3), w: 2, h: 2, plot: { x: 4 * (i % 3), y: 4 * Math.floor(i / 3), w: 4, h: 4 } })),
+    grid: { n: 14, cells: new Uint8Array(14 * 14) },
+    growable: true,
+    around,
+  });
+  const kindsOf = (l: SiteLife) => Array.from({ length: l.dwellingCount }, (_, i) => l.kindOf(i)).slice(9);
+  const seen = new Set<string>();
+  let work = 0;
+  let appended = 0;
+  for (let k = 0; k < 12; k++) {
+    const l = new SiteLife(`land${k}`, packed({ soil: 3, timber: 0, stone: 2 }));
+    l.advanceTo(52 * 400);
+    const ks = kindsOf(l);
+    ks.forEach((x) => seen.add(x));
+    appended += ks.length;
+    work += ks.filter((x) => x !== 'home').length;
+    const jump = new SiteLife(`land${k}`, packed({ soil: 3, timber: 0, stone: 2 }));
+    jump.advanceTo(52 * 400);
+    const watch = new SiteLife(`land${k}`, packed({ soil: 3, timber: 0, stone: 2 }));
+    for (let w = 1; w <= 52 * 400; w++) watch.advanceTo(w);
+    assert.deepEqual(kindsOf(watch), kindsOf(jump), 'jumping equals watching: same appended kinds');
+    assert.deepEqual(kindsOf(jump), ks, 'jumping equals watching: same appended kinds');
+    const none = new SiteLife(`land${k}`, packed());
+    none.advanceTo(52 * 400);
+    assert.ok(kindsOf(none).every((x) => x === 'home'), 'with no land given, appended buildings are homes');
+  }
+  {
+    const pick = (hungry: boolean, land: { soil: number; timber: number; stone: number }) => {
+      const l = new SiteLife('split', packed(land)) as unknown as { appendedKind(week: number, age: number, hungry: boolean): string };
+      const n: Record<string, number> = {};
+      for (let w = 0; w < 4000; w++) n[l.appendedKind(w, 3, hungry)] = (n[l.appendedKind(w, 3, hungry)] ?? 0) + 1;
+      return n;
+    };
+    for (const hungry of [false, true]) {
+      const n = pick(hungry, { soil: 1, timber: 1, stone: 1 });
+      assert.ok((n.mill ?? 0) > 20 && (n.quarry ?? 0) > 20 && (n.farm ?? 0) > 20, `hungry=${hungry}: soil, timber and stone each give their kind: ${JSON.stringify(n)}`);
+    }
+    const n = pick(true, { soil: 3, timber: 0, stone: 2 });
+    assert.ok((n.farm ?? 0) > (n.quarry ?? 0) && (n.quarry ?? 0) > 50, `a hungry town still builds quarries: ${JSON.stringify(n)}`);
+    assert.equal(pick(false, { soil: 3, timber: 3, stone: 3 }).home! > 0, true);
+  }
+  assert.ok(!seen.has('mill'), 'no timber, no mill');
+  assert.ok(seen.has('farm') && seen.has('quarry'), `farms and quarries come from soil and stone: ${[...seen]}`);
+  assert.ok(work > 0 && work < appended * 0.5, `workplaces are a minority of what is appended: ${work}/${appended}`);
+}
+
 // Decay: an empty building goes derelict, then ruin, then is cleared (its ground freed); a street nobody lives near wears
 // road -> track -> green, and comes back if people return. Everything is a function of the week.
 {
@@ -1404,7 +1455,7 @@ assert.equal(viewLevel('s1/b2'), 'body');
       const sx = x - ox;
       const sy = y - oy;
       const old = sx >= 0 && sy >= 0 && sx < sd.grid.n && sy < sd.grid.n;
-      if (old) assert.ok(cells[y * n + x] === sd.grid.cells[sy * sd.grid.n + sx] || (cells[y * n + x] === 1 && (sd.grid.cells[sy * sd.grid.n + sx] <= 3 || sd.grid.cells[sy * sd.grid.n + sx] === 5)), 'the old district keeps its cells (a street may be laid over open ground, or a footpath made a road, to join the new ones)');
+      if (old) assert.ok(cells[y * n + x] === sd.grid.cells[sy * sd.grid.n + sx] || (cells[y * n + x] === 1 && (sd.grid.cells[sy * sd.grid.n + sx] <= 3 || sd.grid.cells[sy * sd.grid.n + sx] === 5) || (cells[y * n + x] === 5 && sd.grid.cells[sy * sd.grid.n + sx] <= 3)), 'the old district keeps its cells (a street may be laid over open ground, or a footpath made a road, to join the new ones; a new building gets a footpath)');
       if (old && cells[y * n + x] === 1 && sd.grid.cells[sy * sd.grid.n + sx] === 5) upgraded++;
       else if (cells[y * n + x] === 1) road++;
       else if (cells[y * n + x] === 3) green++;
