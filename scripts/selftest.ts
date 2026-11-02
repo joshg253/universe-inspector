@@ -670,8 +670,11 @@ assert.equal(viewLevel('s1/b2'), 'body');
       let late = 0;
       let finished = 0;
       let pressed = 0;
+      let tooSoon = 0;
       for (let k = 0; k < 200; k++) {
         const l = new SiteLife(`tiny${k}`, tiny);
+        l.advanceTo(12);
+        if ((l as unknown as { boxedIn: boolean[] }).boxedIn[0]) tooSoon++;
         l.advanceTo(14);
         if ((l as unknown as { boxedIn: boolean[] }).boxedIn[0]) pressed++;
         l.advanceTo(51);
@@ -687,6 +690,18 @@ assert.equal(viewLevel('s1/b2'), 'body');
         }
       }
       assert.ok(finished > late / 2, `a grown home fills the notch in its outline (${finished} of ${late})`);
+      {
+        const walled = new Uint8Array(64).fill(1); // streets all around: nothing to grow into
+        for (const [x, y] of [[2, 2], [3, 2]] as const) walled[y * 8 + x] = 0;
+        let boxed = 0;
+        for (let k = 0; k < 200; k++) {
+          const l = new SiteLife(`walled${k}`, { ...tiny, grid: { n: 8, cells: walled.slice() } });
+          l.advanceTo(14);
+          if ((l as unknown as { boxedIn: boolean[] }).boxedIn[0]) boxed++;
+        }
+        assert.ok(boxed > 185, `a full home with no free ground is pressed after 13 weeks, whether or not it would grow (${boxed} of 200; a few lose a resident and start over)`);
+      }
+      assert.equal(tooSoon, 0, 'no home is pressed before it has been full for 13 weeks');
       assert.ok(pressed > 150, `a full home that will not grow counts as pressed after 13 weeks, so the town builds (${pressed} of 200)`);
       assert.equal(early, 0, 'no home grows before it has been full for 52 weeks');
       assert.ok(late > 10 && late < 70, `a few full homes grow after 52 weeks (${late} of 200)`);
@@ -809,8 +824,8 @@ assert.equal(viewLevel('s1/b2'), 'body');
   assert.ok(later > 50, `later buildings: ${later}`);
   assert.ok(farms > 20, `farmsteads far from the center: ${farms}`);
   assert.ok(reserved > 0 && reserveUsed > 0 && reserveUsed < reserved, `reserve plots are built when needed, not all at once: ${reserveUsed}/${reserved}`);
-    // A quarter, not a third: a town that builds its own homes ends up with more of them than people (about 32% filled).
-    assert.ok(standing > 0 && filled > standing / 4, `built later buildings filled: ${filled}/${standing}`);
+    // A fifth, not a third: a town that builds its own homes ends up with more of them than people (about 32% filled, 24% now that few homes grow in place).
+    assert.ok(standing > 0 && filled > standing / 5, `built later buildings filled: ${filled}/${standing}`);
 }
 
 // Resources, by hand: a water body of 90 cells is a sea, one of 89 a lake; a gas giant holds nothing; rivers follow fresh water.

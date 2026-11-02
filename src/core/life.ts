@@ -961,7 +961,7 @@ export class SiteLife {
    * leaves the box most square, then least widened, then most sides touched. One of the best is rolled from (week, dwelling). Homes are
    * processed in index order, so the earlier one wins a cell both want. Returns whether it grew.
    */
-  private expand(d: number, week: number, notchOnly = false): boolean {
+  private expand(d: number, week: number, notchOnly = false, probe = false): boolean {
     if (this.area[d]! >= MAX_HOME_AREA) return false;
     const n = this.grid.n;
     const own = this.origin[d]!;
@@ -1026,6 +1026,7 @@ export class SiteLife {
       for (let i = ranked.length - 1; i >= 0; i--) if (ranked[i]!.g > 0) ranked.splice(i, 1);
     }
     if (ranked.length === 0) return false;
+    if (probe) return true; // there is room; take nothing
     // A cell inside the box (a notch) first; otherwise the one that leaves the box most square, then the one that widens it
     // least, then the one touching most sides.
     const order = (p: (typeof ranked)[number], q: (typeof ranked)[number]) =>
@@ -1196,8 +1197,12 @@ export class SiteLife {
       if (g.length < this.capacity(d)) this.fullWeeks[d] = 0;
       else if (!this.boxedIn[d]) {
         const grows = roll(this.base, 0, d, 36) < EXPAND_SHARE;
-        if (++this.fullWeeks[d]! < (grows ? EXPAND_AFTER_WEEKS : PRESSED_AFTER_WEEKS)) return;
-        if (grows && this.expand(d, week)) this.fullWeeks[d] = 0;
+        const waited = ++this.fullWeeks[d]!;
+        if (waited < PRESSED_AFTER_WEEKS) return;
+        // One that will not grow, or has no room to, is pressed now; the rest wait their year for the cell.
+        if (grows && waited < EXPAND_AFTER_WEEKS) {
+          if (!this.expand(d, week, false, true)) this.boxedIn[d] = true;
+        } else if (grows && this.expand(d, week)) this.fullWeeks[d] = 0;
         else this.boxedIn[d] = true;
       }
     });
