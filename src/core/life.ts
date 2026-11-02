@@ -8,7 +8,7 @@
 // separate fact (`residence`), so moving house never changes who they are or breaks a link to them.
 import { hash32 } from './rng';
 import { WEEK, YEAR } from './time';
-import type { SiteView } from './types';
+import type { DwellingKind, DwellingSummary, SiteView } from './types';
 
 // Standard units (see time.ts); kept under the old names for the callers that count ages and weeks.
 export const TICKS_PER_YEAR = YEAR;
@@ -31,6 +31,14 @@ const FINISH_EVERY_WEEKS = 4;
 const MAX_HOME_AREA = 16;
 /** District grid codes a home may grow onto (CELL.ground, CELL.green in town.ts); roads, plaza and water stay. */
 const FREE_CELLS = [0, 3];
+/** A town appends homes only while no more than this share of its standing homes is empty. */
+const EMPTY_SHARE = 0.6;
+/** Least cells between the street lines laid in ground the grid gains (the gap widens with distance), and the base share of the rest that is green (in 3x3 patches). */
+const STREET_GAP = 6;
+const WATER = 4;
+/** What a water cell costs a street joining the ring, against 1 for open ground (bridges only where nothing else reaches). */
+const WATER_COST = 12;
+const GREEN_PERCENT = 12;
 /** The district grid grows by this many cells on every side when a growing town runs out of open ground, up to MAX_GRID (a stand-in cap). */
 const GROW_STEP = 6;
 export const MAX_GRID = 160;
@@ -270,6 +278,10 @@ export class SiteLife {
   private readonly byOrigin: number[][];
   /** Cells each dwelling has gained beyond its rectangle (homes that stayed full), in the order they were added. */
   private readonly extra: Cell[][];
+  /** The door and footpath of each home the town added (by dwelling index); the footpath is cells with the class each had before. */
+  private readonly access = new Map<number, { door: { x: number; y: number; side: number }; track: { x: number; y: number; cls: number }[] }>();
+  /** 1 where a seed plot's parcel lies (not yet cleared): appended homes keep to ground nobody holds. */
+  private parcel: Uint8Array;
   private readonly area: number[];
   private readonly origin: { x: number; y: number; w: number; h: number }[];
   /** The week each dwelling is finished (-1: a reserve plot, given a week when homes are full and cannot grow). */
@@ -308,7 +320,7 @@ export class SiteLife {
     this.byOrigin = data.dwellings.map(() => []);
     this.extra = data.dwellings.map(() => []);
     this.area = data.dwellings.map((d) => d.w * d.h);
-    this.grid = data.grid;
+    this.grid = { n: data.grid.n, cells: data.grid.cells.slice() }; // a copy: the seed is shared, and streets are laid on this one
     this.growable = data.growable ?? false;
     this.maxGrid = data.maxGrid ?? MAX_GRID;
     this.feed = 0.55 + 0.45 * (data.food ?? 1);
@@ -321,6 +333,11 @@ export class SiteLife {
     for (const d of data.dwellings) this.paintRect(d);
     this.ruinedWeek = data.dwellings.map(() => -1);
     this.clearedWeek = data.dwellings.map(() => -1);
+    this.parcel = new Uint8Array(data.grid.n * data.grid.n);
+    for (const d of data.dwellings) {
+      const p = d.plot;
+      if (p) for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) this.parcel[y * data.grid.n + x] = 1;
+    }
     this.worn = new Uint8Array(data.grid.n * data.grid.n);
     this.idle = new Uint8Array(data.grid.n * data.grid.n);
     this.started = data.dwellings.map(() => false);
@@ -505,6 +522,11 @@ export class SiteLife {
     return this.kinds[dwelling]!;
   }
 
+  /** A dwelling's rectangle in the grid's current coordinates (see `offset`). */
+  rectOf(dwelling: number): { x: number; y: number; w: number; h: number } {
+    return { ...this.origin[dwelling]! };
+  }
+
   /** The district's cells as laid out (footpaths of buildings finished later included). */
   get layoutCells(): Uint8Array {
     return this.grid.cells;
@@ -583,6 +605,203 @@ export class SiteLife {
       worn.set(this.worn.subarray(y * old, (y + 1) * old), (y + p) * n + p);
       idle.set(this.idle.subarray(y * old, (y + 1) * old), (y + p) * n + p);
     }
+    // The new ring is town, not bare ground: irregular streets that thin out toward the edge, green patches, and the river. All pure
+    // in the seed's own coordinates, so a line or patch is the same however the grid grew.
+    const seedN = old - 2 * this.shiftX;
+    const c = seedN / 2;
+    const base = this.base;
+    const lineSet = (axis: number): Set<number> => {
+      const out = new Set<number>();
+      for (const dir of [1, -1]) {
+        for (let pos = c, i = 0; Math.abs(pos - c) < this.maxGrid; i++) {
+          pos += dir * (STREET_GAP + (hash32(`${base}|gap|${axis}|${dir}|${i}`) % 4) + Math.floor(Math.abs(pos - c) / 6));
+          out.add(Math.round(pos));
+        }
+      }
+      return out;
+    };
+    const lines = [lineSet(0), lineSet(1)];
+    /** Whether a street line of one axis passes the cell: it wobbles a cell either way every 8 cells and, far out, has more gaps. */
+    const street = (axis: number, along: number, across: number): boolean => {
+      for (let w = -1; w <= 1; w++) {
+        const x0 = across - w;
+        if (!lines[axis]!.has(x0)) continue;
+        const seg = Math.floor(along / 8);
+        const h = hash32(`${base}|wob|${axis}|${x0}|${seg}`);
+        if (h % 3 - 1 !== w) continue;
+        if (Math.floor(h / 3) % 100 >= Math.min(60, Math.max(0, (Math.abs(x0 - c) - 24) * 2))) return true; // gaps grow with distance
+      }
+      return false;
+    };
+    const inner = (v: number) => v >= p && v < p + old;
+    for (let y = 0; y < n; y++) {
+      for (let x = 0; x < n; x++) {
+        if (inner(x) && inner(y)) continue;
+        const sx = x - this.shiftX - p;
+        const sy = y - this.shiftY - p;
+        const at = y * n + x;
+        if (street(0, sy, sx) || street(1, sx, sy)) cells[at] = 1;
+        else {
+          const far = Math.max(0, Math.hypot(sx - c, sy - c) - seedN / 2);
+          if (hash32(`${base}|green|${Math.floor(sx / 3)}|${Math.floor(sy / 3)}`) % 100 < GREEN_PERCENT + Math.min(20, Math.floor(far / 3))) cells[at] = 3;
+        }
+      }
+    }
+    // A river that reaches the old edge runs on through the ring, keeping the heading it came in with and turning now and then (one
+    // course for the whole width).
+    const old0 = this.grid.cells;
+    for (let side = 0; side < 4; side++) {
+      const at = (j: number, depth = 0) => old0[side < 2 ? (side === 0 ? depth : old - 1 - depth) * old + j : j * old + (side === 2 ? depth : old - 1 - depth)];
+      for (let i = 0; i < old; i++) {
+        if (at(i) !== WATER) continue;
+        let j = i;
+        while (j < old && at(j) === WATER) j++;
+        // the heading: where the river was a few cells in, against where it is at the edge
+        const mid = (i + j - 1) / 2;
+        let back = -1;
+        for (let t = 0; t < old; t++) if (at(t, 5) === WATER && (back < 0 || Math.abs(t - mid) < Math.abs(back - mid))) back = t;
+        let vel = back < 0 ? 0 : Math.max(-1, Math.min(1, Math.round((mid - back) / 3)));
+        let drift = 0;
+        for (let k = 1; k <= p; k++) {
+          const h = hash32(`${base}|river|${side}|${i - (side < 2 ? this.shiftX : this.shiftY)}|${k}`);
+          if (h % 3 === 0) vel = (Math.floor(h / 3) % 3) - 1;
+          drift += vel;
+          for (let t = i; t < j; t++) {
+            const along = t + p + drift;
+            const x = side < 2 ? along : side === 2 ? p - k : p + old - 1 + k;
+            const y = side >= 2 ? along : side === 0 ? p - k : p + old - 1 + k;
+            if (x >= 0 && y >= 0 && x < n && y < n) cells[y * n + x] = WATER;
+          }
+        }
+        i = j;
+      }
+    }
+    // A footpath that links two separate streets is one of them: it becomes a road (one that only reaches a single street stays a footpath).
+    {
+      const road = new Int32Array(n * n).fill(-1);
+      let roads = 0;
+      const flood = (k: number, mark: Int32Array, id: number, take: (v: number, i: number) => boolean): number[] => {
+        const list = [k];
+        mark[k] = id;
+        for (let q = 0; q < list.length; q++) {
+          const cx = list[q]! % n;
+          const cy = (list[q]! - cx) / n;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const xx = cx + dx;
+              const yy = cy + dy;
+              if (xx < 0 || yy < 0 || xx >= n || yy >= n) continue;
+              const nb = yy * n + xx;
+              if (mark[nb]! < 0 && take(cells[nb]!, nb)) (mark[nb] = id, list.push(nb));
+            }
+          }
+        }
+        return list;
+      };
+      for (let k = 0; k < n * n; k++) if (road[k]! < 0 && (cells[k] === 1 || cells[k] === 2) && !worn[k]) flood(k, road, roads++, (v, i) => (v === 1 || v === 2) && !worn[i]);
+      const seen = new Int32Array(n * n).fill(-1);
+      let paths = 0;
+      for (let k = 0; k < n * n; k++) {
+        if (seen[k]! >= 0 || cells[k] !== 5 || worn[k]) continue;
+        const group = flood(k, seen, paths++, (v, i) => v === 5 && !worn[i]);
+        const touched = new Set<number>();
+        for (const g of group) {
+          const gx = g % n;
+          const gy = (g - gx) / n;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const xx = gx + dx;
+            const yy = gy + dy;
+            if (xx >= 0 && yy >= 0 && xx < n && yy < n && road[yy * n + xx]! >= 0) touched.add(road[yy * n + xx]!);
+          }
+        }
+        if (touched.size >= 2) for (const g of group) (cells[g] = 1, worn[g] = 0, idle[g] = 0);
+      }
+    }
+    // Every street piece in the ring is joined to the network (a street always meets another at one end at least): the piece cheapest
+    // to reach is linked first, over free ground, and across water only where nothing else reaches (WATER_COST per cell, so one bridge
+    // serves a whole bank, not one per block).
+    {
+      const isRoad = (k: number) => (cells[k] === 1 || cells[k] === 2 || cells[k] === 5) && !worn[k]; // footpaths count: they are streets people walk; a worn-away one is grass
+      const comp = new Int32Array(n * n).fill(-1);
+      const members: number[][] = [];
+      const inRing: boolean[] = [];
+      for (let k = 0; k < n * n; k++) {
+        if (comp[k] >= 0 || !isRoad(k)) continue;
+        const id = members.length;
+        const list = [k];
+        comp[k] = id;
+        let ring = false;
+        for (let q = 0; q < list.length; q++) {
+          const cur = list[q]!;
+          const cx = cur % n;
+          const cy = (cur - cx) / n;
+          if (!inner(cx) || !inner(cy)) ring = true;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const xx = cx + dx;
+              const yy = cy + dy;
+              if (xx < 0 || yy < 0 || xx >= n || yy >= n) continue;
+              const nb = yy * n + xx;
+              if (comp[nb]! < 0 && isRoad(nb)) (comp[nb] = id, list.push(nb));
+            }
+          }
+        }
+        members.push(list);
+        inRing.push(ring);
+      }
+      let main = -1;
+      members.forEach((list, id) => {
+        if (list.some((k) => cells[k] === 2) && main < 0) main = id; // the plaza's network
+      });
+      if (main < 0) members.forEach((list, id) => (main < 0 || list.length > members[main]!.length) && (main = id));
+      const left = new Set<number>();
+      inRing.forEach((r, id) => r && id !== main && left.add(id));
+      const NB4 = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const;
+      while (main >= 0 && left.size > 0) {
+        const dist = new Int32Array(n * n).fill(-1);
+        const from = new Int32Array(n * n).fill(-1);
+        const buckets: number[][] = [[]];
+        for (const k of members[main]!) (dist[k] = 0, buckets[0]!.push(k));
+        let hit = -1;
+        for (let d = 0; d < buckets.length && hit < 0; d++) {
+          for (const cur of buckets[d] ?? []) {
+            if (dist[cur] !== d) continue; // a longer way found since
+            if (comp[cur]! >= 0 && left.has(comp[cur]!)) {
+              hit = cur;
+              break;
+            }
+            const cx = cur % n;
+            const cy = (cur - cx) / n;
+            for (const [dx, dy] of NB4) {
+              const xx = cx + dx;
+              const yy = cy + dy;
+              if (xx < 0 || yy < 0 || xx >= n || yy >= n) continue;
+              const nb = yy * n + xx;
+              if (occ[nb]) continue;
+              const nd = d + (cells[nb] === WATER ? WATER_COST : cells[nb] === 5 ? 0 : 1); // footpaths are free: they are the way people already go
+              if (dist[nb]! >= 0 && dist[nb]! <= nd) continue;
+              dist[nb] = nd;
+              from[nb] = cur;
+              (buckets[nd] ??= []).push(nb);
+            }
+          }
+        }
+        if (hit < 0) break; // walled in by buildings
+        const joined = comp[hit]!;
+        for (let k = hit; k >= 0 && dist[k] !== 0; k = from[k]!) if ((cells[k] !== 1 && cells[k] !== 2) || worn[k]) (cells[k] = 1, worn[k] = 0, idle[k] = 0); // a footpath on the way becomes a road, a worn street is mended
+        for (const k of members[joined]!) comp[k] = main;
+        members[main]!.push(...members[joined]!);
+        left.delete(joined);
+      }
+    }
+    const parcel = new Uint8Array(n * n);
+    for (let y = 0; y < old; y++) parcel.set(this.parcel.subarray(y * old, (y + 1) * old), (y + p) * n + p);
+    this.parcel = parcel;
+    for (const a of this.access.values()) {
+      a.door.x += p;
+      a.door.y += p;
+      for (const c of a.track) (c.x += p, c.y += p);
+    }
     this.grid = { n, cells };
     this.occ = occ;
     this.worn = worn;
@@ -610,7 +829,7 @@ export class SiteLife {
           for (let xx = x - 1; xx <= x + w && ok; xx++) {
             const k = yy * n + xx;
             const inside = xx >= x && xx < x + w && yy >= y && yy < y + h;
-            if (this.occ[k] || (inside && !FREE_CELLS.includes(this.grid.cells[k]!))) ok = false;
+            if (this.occ[k] || this.parcel[k] || (inside && !FREE_CELLS.includes(this.grid.cells[k]!))) ok = false;
           }
         }
         if (ok) (best = { x, y }, bestD = d);
@@ -641,7 +860,70 @@ export class SiteLife {
     this.boxedIn.push(false);
     this.finish.push(0);
     this.paintRect({ x: at.x, y: at.y, w, h });
+    this.connect(this.kinds.length - 1, { x: at.x, y: at.y, w, h });
     return true;
+  }
+
+  /**
+   * Give a new home its door and a footpath to the nearest street, path or plaza over open ground (breadth first from the cells beside
+   * it, fixed side and cell order). With none reachable the door faces south and there is no path.
+   */
+  private connect(dwelling: number, r: { x: number; y: number; w: number; h: number }): void {
+    const n = this.grid.n;
+    const cells = this.grid.cells;
+    const NB4 = [[0, -1], [1, 0], [0, 1], [-1, 0]] as const; // north, east, south, west
+    const street = (k: number) => (cells[k] === 1 || cells[k] === 2) && !this.worn[k]; // standing streets only: the paths of buildings not standing are not drawn
+    const seen = new Uint8Array(n * n);
+    const from = new Int32Array(n * n).fill(-1);
+    const doorAt = new Map<number, { x: number; y: number; side: number }>();
+    const queue: number[] = [];
+    const edge: { x: number; y: number; side: number }[] = [];
+    for (let x = r.x; x < r.x + r.w; x++) edge.push({ x, y: r.y, side: 0 });
+    for (let y = r.y; y < r.y + r.h; y++) edge.push({ x: r.x + r.w - 1, y, side: 1 });
+    for (let x = r.x; x < r.x + r.w; x++) edge.push({ x, y: r.y + r.h - 1, side: 2 });
+    for (let y = r.y; y < r.y + r.h; y++) edge.push({ x: r.x, y, side: 3 });
+    for (const e of edge) {
+      const nx = e.x + NB4[e.side]![0];
+      const ny = e.y + NB4[e.side]![1];
+      if (nx < 0 || ny < 0 || nx >= n || ny >= n) continue;
+      const k = ny * n + nx;
+      if (this.occ[k] || seen[k]) continue;
+      if (street(k)) {
+        this.access.set(dwelling, { door: e, track: [] }); // already on a street
+        return;
+      }
+      if (FREE_CELLS.includes(cells[k]!)) (seen[k] = 1, doorAt.set(k, e), queue.push(k));
+    }
+    for (let q = 0; q < queue.length; q++) {
+      const cur = queue[q]!;
+      const cx = cur % n;
+      const cy = (cur - cx) / n;
+      for (const [dx, dy] of NB4) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= n || ny >= n) continue;
+        const k = ny * n + nx;
+        if (seen[k] || this.occ[k]) continue;
+        if (street(k)) {
+          const track: { x: number; y: number; cls: number }[] = [];
+          let c = cur;
+          for (;;) {
+            track.push({ x: c % n, y: Math.floor(c / n), cls: cells[c]! });
+            cells[c] = 5;
+            if (from[c]! < 0) break;
+            c = from[c]!;
+          }
+          this.access.set(dwelling, { door: doorAt.get(c)!, track });
+          return;
+        }
+        if (FREE_CELLS.includes(cells[k]!)) (seen[k] = 1, from[k] = cur, queue.push(k));
+      }
+    }
+  }
+
+  /** The door and footpath of a home the town added (the footpath as cells and the class each had before), if it has them. */
+  accessOf(dwelling: number): { door: { x: number; y: number; side: number }; track: readonly { x: number; y: number; cls: number }[] } | undefined {
+    return this.access.get(dwelling);
   }
 
   private paintRect(r: { x: number; y: number; w: number; h: number }): void {
@@ -915,7 +1197,10 @@ export class SiteLife {
     // first, nearest the center first) and finished some weeks on.
     let pressed = 0;
     let underway = 0;
+    let emptyHomes = 0;
+    let standingHomes = 0;
     home.forEach((g, d) => {
+      if (this.kinds[d] === 'home' && this.isBuilt(d, week)) (standingHomes++, g.length === 0 && emptyHomes++);
       if (this.started[d] && this.builtWeek[d]! > week) underway++;
       else if (this.kinds[d] === 'home' && this.boxedIn[d] && g.length >= this.capacity(d)) pressed++;
     });
@@ -924,6 +1209,8 @@ export class SiteLife {
     for (let d = 0; d < this.kinds.length; d++) if (this.kinds[d] === 'farm' && this.isBuilt(d, week)) farms++;
     const hungry = this.living > FOOD_BASE + FARM_FEEDS * farms;
     let startedNow = false;
+    // A town with too many homes standing empty appends no more.
+    const roomy = emptyHomes > standingHomes * EMPTY_SHARE;
     if (pressed > underway && roll(base, week, 0, 24) < pressed * BUILD_PER_PRESSED_WEEK * this.feed) {
       let pick = -1;
       for (let d = 0; d < this.builtWeek.length && pick < 0; d++) if (this.builtWeek[d] === -1 && this.kinds[d] === 'home') pick = d;
@@ -935,7 +1222,7 @@ export class SiteLife {
       if (pick >= 0) this.started[pick] = true;
       startedNow = pick >= 0;
       // No reserve left: a growing town appends a home (and widens its grid if the ground is used up).
-      if (pick < 0 && !farmWaits && this.growable) startedNow = this.appendHome(week);
+      if (pick < 0 && !farmWaits && !roomy && this.growable) startedNow = this.appendHome(week);
     }
 
     // A workplace whose age has come is started now and then, one at a time. A town the land cannot feed starts a farm first;
@@ -995,6 +1282,8 @@ export class SiteLife {
       const own = this.origin[d]!;
       for (let y = own.y; y < own.y + own.h; y++) for (let x = own.x; x < own.x + own.w; x++) this.occ[y * n + x] = 0;
       for (const c of this.extra[d]!) this.occ[c.y * n + c.x] = 0;
+      const pl = this.plot[d];
+      if (pl) for (let y = pl.y; y < pl.y + pl.h; y++) for (let x = pl.x; x < pl.x + pl.w; x++) this.parcel[y * n + x] = 0;
     }
     const n = this.grid.n;
     const kept = new Uint8Array(n * n);
@@ -1199,7 +1488,7 @@ export function visibleCells(cells: Uint8Array, dwellings: { built: boolean; tra
   for (const d of dwellings) {
     if (d.built || !d.track) continue;
     if (out === cells) out = cells.slice();
-    for (const e of d.track) out[e >> 3] = e & 7;
+    for (const e of d.track) if (out[e >> 3] === 5) out[e >> 3] = e & 7; // a footpath that became a road stays one
   }
   return out;
 }
@@ -1219,9 +1508,52 @@ export function wornCells(cells: Uint8Array, wear: Uint8Array, layout: Uint8Arra
   return out;
 }
 
-export function applyLife(view: SiteView, life: SiteLife): SiteView {
-  const counts = new Array<number>(view.dwellings.length).fill(0);
+export function applyLife(
+  view: SiteView,
+  life: SiteLife,
+  /** The name key and inspected flag of a dwelling the town added after layout, by path. */
+  meta: (path: string) => { nameKey: number; inspected: boolean } = () => ({ nameKey: 0, inspected: false }),
+): SiteView {
+  const counts = new Array<number>(life.dwellingCount).fill(0);
   for (const p of life.people) if (p.deathTick === null) counts[p.residence]!++;
-  const dwellings = view.dwellings.map((d, i) => ({ ...d, extra: [...life.extension(i)], capacity: life.capacity(i), built: life.isBuilt(i), decay: life.isCleared(i) ? ('cleared' as const) : life.isRuin(i) ? ('ruin' as const) : life.isDerelict(i) ? ('derelict' as const) : undefined, builtWeek: life.builtWeekOf(i), residents: counts[i] ?? d.residents }));
-  return { ...view, population: life.living, cells: wornCells(visibleCells(life.layoutCells, dwellings), life.wear, life.layoutCells), dwellings };
+  const { x: ox, y: oy } = life.offset;
+  const n = life.gridSize;
+  const seeded = view.dwellings.length;
+  const state = (i: number) => ({
+    extra: [...life.extension(i)],
+    capacity: life.capacity(i),
+    built: life.isBuilt(i),
+    decay: life.isCleared(i) ? ('cleared' as const) : life.isRuin(i) ? ('ruin' as const) : life.isDerelict(i) ? ('derelict' as const) : undefined,
+    builtWeek: life.builtWeekOf(i),
+    residents: counts[i]!,
+  });
+  const dwellings: DwellingSummary[] = view.dwellings.map((d, i) => ({
+    ...d,
+    ...state(i),
+    ...life.rectOf(i),
+    door: { ...d.door, x: d.door.x + ox, y: d.door.y + oy },
+    // a cell index of the layout's grid, moved into the grown one
+    track: d.track?.map((e) => {
+      const k = e >> 3;
+      return (((Math.floor(k / view.w) + oy) * n + (k % view.w) + ox) << 3) | (e & 7);
+    }),
+  }));
+  for (let i = seeded; i < life.dwellingCount; i++) {
+    const r = life.rectOf(i);
+    const path = `${view.path}/d${i}`;
+    const a = life.accessOf(i);
+    dwellings.push({
+      path,
+      index: i,
+      kind: life.kindOf(i) as DwellingKind,
+      ...r,
+      ...meta(path),
+      plot: -1,
+      door: a?.door ?? { x: r.x, y: r.y + r.h - 1, side: 2 },
+      track: a && a.track.length > 0 ? a.track.map((c) => ((c.y * n + c.x) << 3) | c.cls) : undefined,
+      ...state(i),
+    });
+  }
+  const plots = view.plots.map((p) => ({ ...p, x: p.x + ox, y: p.y + oy }));
+  return { ...view, w: n, h: n, population: life.living, cells: wornCells(visibleCells(life.layoutCells, dwellings), life.wear, life.layoutCells), dwellings, plots };
 }

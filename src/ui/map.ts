@@ -178,6 +178,12 @@ export class MapCanvas {
 
   setView(view: View): void {
     const same = this.view?.path === view.path;
+    // A district that grew gained the same cells on every side, so what you were looking at moved: pan back by that much.
+    if (same && this.view?.level === 'site' && view.level === 'site' && view.w !== this.view.w && this.touched) {
+      const gained = (view.w - this.view.w) / 2;
+      this.ox -= gained * this.scale;
+      this.oy -= gained * this.scale;
+    }
     this.view = view;
     const cells = view.level === 'site' ? view.cells : null;
     if (same && cells && this.offCells && !sameCells(cells, this.offCells)) this.off = this.buildOffscreen(view); // streets wore or a path appeared

@@ -1,7 +1,7 @@
 // Runs generation and the tick loop off the main thread.
 import { Sim, dynFor } from '../core/sim';
-import { genBody, genRecord, genSite, genSystem, genUniverse } from '../core/generate';
-import { applyLife, TICKS_PER_WEEK } from '../core/life';
+import { genBody, genRecord, genSite, genSystem, genUniverse, liveSite } from '../core/generate';
+import { TICKS_PER_WEEK } from '../core/life';
 import { parsePath, sitePathOf } from '../core/path';
 import { LEVELS, SPEED_GLYPHS, speedTps, type FromWorker, type ToWorker } from '../core/protocol';
 import type { SimEvent, View } from '../core/types';
@@ -83,7 +83,16 @@ function buildView(path: string): View {
   }
   const site = genSite(sim.seed, s, b, segs[2]?.i ?? 0, sim.deltas);
   const life = sim.lifeFor(site.path, true);
-  return life ? applyLife(site, life) : site;
+  return life ? liveSite(sim.seed, site, life, sim.deltas) : site;
+}
+
+/** Send a record; one for a home the district has not built yet in this run (after a rewind) is dropped, not thrown. */
+function postRecord(path: string): void {
+  try {
+    ctx.postMessage({ type: 'record', record: recordFor(path) });
+  } catch {
+    if (recordPath === path) recordPath = null;
+  }
 }
 
 function recordFor(path: string) {
@@ -99,7 +108,7 @@ function refreshLive(): void {
     postView();
     // The open record needs its district at the current week; do not make that one long fold from here, wait until it is there.
     const open = recordPath ? sitePathOf(recordPath) : null;
-    if (recordPath && open && sim.peekLiving(open, 0).current) ctx.postMessage({ type: 'record', record: recordFor(recordPath) });
+    if (recordPath && open && sim.peekLiving(open, 0).current) postRecord(recordPath);
   }
   if (sim.lifeVersion === seenLifeVersion) return;
   seenLifeVersion = sim.lifeVersion;
@@ -107,7 +116,7 @@ function refreshLive(): void {
     view = buildView(view.path);
     postView();
   }
-  if (recordPath && sitePathOf(recordPath)) ctx.postMessage({ type: 'record', record: recordFor(recordPath) });
+  if (recordPath && sitePathOf(recordPath)) postRecord(recordPath);
 }
 
 function postView(): void {
@@ -212,7 +221,7 @@ ctx.onmessage = (e) => {
         break;
       case 'record':
         recordPath = msg.path;
-        ctx.postMessage({ type: 'record', record: recordFor(msg.path) });
+        postRecord(msg.path);
         break;
       case 'step':
         runTicks(Math.max(1, Math.min(10_000_000, msg.n ?? 1)), false);
@@ -224,7 +233,7 @@ ctx.onmessage = (e) => {
         for (const e of sim.stopAt(paths)) evBuf.push(e);
         view = view ? buildView(view.path) : view;
         postView();
-        if (recordPath) ctx.postMessage({ type: 'record', record: recordFor(recordPath) });
+        if (recordPath) postRecord(recordPath);
         seenLifeVersion = sim.lifeVersion;
         postTick();
         break;
@@ -235,7 +244,7 @@ ctx.onmessage = (e) => {
         for (const e of evs) evBuf.push(e);
         view = view ? buildView(view.path) : view;
         postView();
-        if (recordPath) ctx.postMessage({ type: 'record', record: recordFor(recordPath) });
+        if (recordPath) postRecord(recordPath);
         seenLifeVersion = sim.lifeVersion; // the view and record above are already fresh
         postTick();
         break;
@@ -251,7 +260,7 @@ ctx.onmessage = (e) => {
           view = buildView(view.path);
           postView();
         }
-        ctx.postMessage({ type: 'record', record: recordFor(msg.path) });
+        postRecord(msg.path);
         break;
     }
   } catch (err) {
