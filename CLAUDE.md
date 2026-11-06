@@ -38,27 +38,17 @@ Roadmap Inbox when the user mentions them.
 - Node is pinned to the current LTS line (24, `.nvmrc` + `engines`). Dependencies are exact versions
   (`.npmrc` has `save-exact`); `@types/node` tracks the Node major, not latest.
 
-## Subagents
-
-- Brief a subagent as a colleague with no memory: don't commit, don't touch README/ROADMAP, never wipe
-  shared temp dirs.
-
 ## Git and commits
 
 - Before each commit, in order: tests for the changed behavior -> `npm test` + `npm run build` -> update docs
   -> commit. If too small for a test, say why.
-- Docs ride with the code: README / ROADMAP updates go in the same commit as the change, unasked. Say which
-  docs changed.
-- Docs-only changes go straight to `main`: no review, Issue or PR.
-- Push that sha explicitly (`git log --oneline origin/<branch>..<sha>` first), never a local `main` that may be ahead.
-  If the user allows a direct push to `main` once, that covers that push only.
+- Docs-only changes may go straight to `main` (no review, Issue or PR), but only when the owner says push.
 - Remote: GitHub `joshg253/universe-inspector` (`origin`). Commits are SSH-signed with a repo-local, passphrase-less
   key (`user.signingkey` in `.git/config`; the private key lives in `~/.ssh`, never in the repo; add the public key on
   GitHub as a *signing* key so commits show Verified). The author email is GitHub's noreply address (global config).
   Push over HTTPS through `gh` if the SSH key is not registered for pushing. Never put tokens in the repo or in chat:
   `gh` keeps its login in the OS keyring (or `GH_TOKEN` in the environment).
-- User-testable work: commit locally -> build -> user tests -> push -> PR. A commit is not a build: after
-  `npm run build`, grep `dist/` for a new symbol before telling the user to test.
+- User-testable work: commit locally -> build -> user tests -> push -> PR.
 
 ## Issues and pull requests
 
@@ -68,22 +58,29 @@ The owner reports bugs and ideas in the session, so the public view is clean: on
    1. Tests for the changed behavior added or updated; `npm test` and `npm run build` green.
    2. Docs updated in the same change and listed at the end: README, ROADMAP, CLAUDE.md, and the Wiki (a separate clone,
       `../universe-inspector.wiki`) where behavior, controls or screenshots changed. Retake screenshots that changed.
-   3. Independent review (step 2), findings verified and fixed, the fixes re-tested.
+   3. Independent review (step 2) against the Review rules below, findings verified and fixed, the fixes re-tested.
    4. An Issue written after the fact (what was reported, expected vs actual, cause, fix, how it was verified; no chat
       narrative, no private names), a `fix/<slug>` or `feat/<slug>` branch, signed commit(s) with `Closes #N`, push the
       branch, open the PR (same facts, how to test, a line that it was AI-reviewed), then read the checks.
    5. Push the matching Wiki commit last.
    The owner's "push" covers exactly this: that branch, its Issue and PR, and its Wiki commit. Nothing else.
-2. **Independent review before the PR.** Spawn a fresh-context reviewer subagent (`model: opus`; give it only the diff,
-   the Issue text and the relevant rules, not the conversation) and ask for correctness bugs, determinism breaks,
-   missing tests and docs drift. Verify each finding, fix what is valid, say what was declined and why. State in the
-   PR that this was an AI review, not an external one. Use the `code-review` skill when the owner asks for it.
+2. **Independent review before the PR:** use the global `pr-review` skill.
 3. **Drive it with `gh`**: `gh issue create`, `gh pr create`, `gh pr checks`, `gh run view --log-failed`,
    `gh pr view --comments`, `gh pr comment`. Never `gh pr merge`.
 4. **Watch CI and review comments** after opening: failed job logs via `gh run view --log-failed`, comments via `gh pr view`. Fix what
    is valid on the same branch with a regression test, reply, then resolve the thread (`resolveReviewThread` through `gh api graphql`,
    thread ids from `reviewThreads`).
 5. Ideas that are not concrete work go in `ROADMAP.md`, not the issue tracker.
+
+## Review rules
+
+Pass these to the `pr-review` reviewer:
+
+- Determinism: no `Math.random()` in `src/core/` (allowed in `src/ui/` only); no rng inside a `sort` comparator.
+- Core purity: no DOM or theme words in `src/core/`; `life.ts` and `town.ts` stay pure functions of (seed, path[, week]).
+- Packs, skins and feature sets stay separate; extension goes through them, not branches in core.
+- Docs drift: README, ROADMAP and CLAUDE.md match the code.
+- Rule or constant changes also update the Wiki's `Model-Notes.md` in the same push.
 
 ## Docs conventions
 
@@ -95,8 +92,6 @@ The owner reports bugs and ideas in the session, so the public view is clean: on
 ## Debugging and verification
 
 - Edit scripts: read, apply all replacements in memory, write once at the end.
-- Be a polite client when calling external endpoints in ad-hoc debugging: paced requests, no looped probing.
-- Don't `pkill` by name pattern or wipe shared temp dirs; use the project's own cleanup.
 - For determinism bugs, reproduce with a fixed seed in `scripts/selftest.ts` first, then fix.
 
 ## Screenshots
@@ -104,8 +99,7 @@ The owner reports bugs and ideas in the session, so the public view is clean: on
 - With the dev server up, `scripts/run.cmd node scripts/shot.mjs "<url>" out.png` takes a screenshot via headless Edge.
   URL params pick the state: `?skin=beos&pack=fantasy&seed=abc&view=s0/b0&ticks=2000`, plus `&sel=<path>&tab=results`
   to open a record, `&menu=1` for the Start menu and `&dialog=new` for the New universe dialog. `SHOT_TEXT=1` also
-  prints the active panel's text. Send results with SendUserFile.
-  Quote the URL (it contains `&`).
+  prints the active panel's text. Quote the URL (it contains `&`).
 
 ## Caveat
 
