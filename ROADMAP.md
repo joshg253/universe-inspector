@@ -141,7 +141,7 @@ progression through ages, all deterministic from the seed. You watch and inspect
       view, map and records follow the grown grid). New rings get irregular streets and green patches, a river carries on, and street pieces are joined to the old
       network (bridges only where needed). A town appends homes while no more than 60% of its homes stand empty, onto ground no parcel
       holds, with a door and a footpath to the nearest street; where the land offers soil, timber or stone some are farms, mills
-      and quarries. Open: docks and mines for appended buildings, and a population that follows the land: the people hover near 130 while homes triple, so most appended homes stand empty.
+      and quarries. Births and arrivals are measured against what the farms (as many as the soil has room for) feed, if more than the start. Open: most appended homes still stand empty (60 to 75%, as buildings grow about as fast as people), docks, mines, finite resources, resettling ruins.
 - [ ] **Resource-driven land use:** what a settlement farms or works comes from the planet map cells around it (soil and
       water for grain and animals, forest for timber, ore for mines), not a fixed share. Most towns start with farms of
       their own; one becomes a farm town where the farms take over the district, another drops most of its farms because
